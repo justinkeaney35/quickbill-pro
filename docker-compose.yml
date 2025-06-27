@@ -1,0 +1,67 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    container_name: quickbill_postgres
+    environment:
+      POSTGRES_DB: quickbill_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - quickbill_network
+
+  # Backend API
+  backend:
+    build: ./backend
+    container_name: quickbill_backend
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/quickbill_db
+      - JWT_SECRET=your_super_secret_jwt_key_change_in_production
+      - PORT=3001
+    ports:
+      - "3002:3001"
+    depends_on:
+      - postgres
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - quickbill_network
+
+  # Frontend React App
+  frontend:
+    build: ./frontend
+    container_name: quickbill_frontend
+    environment:
+      - REACT_APP_API_URL=http://localhost:3002/api
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - quickbill_network
+
+  # Redis for session storage (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: quickbill_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - quickbill_network
+
+volumes:
+  postgres_data:
+
+networks:
+  quickbill_network:
+    driver: bridge
