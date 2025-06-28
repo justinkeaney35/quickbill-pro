@@ -1138,6 +1138,135 @@ body {
   line-height: 1.6;
 }
 
+/* Check Email Page Styles */
+.check-email-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+  padding: 2rem 0;
+  text-align: center;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.email-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+}
+
+.email-info h2 {
+  color: #1f2937;
+  margin: 0 0 1rem 0;
+}
+
+.email-info p {
+  color: #6b7280;
+  margin: 0.5rem 0;
+}
+
+.email-address {
+  background: #f3f4f6;
+  color: #4f46e5;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  margin: 1rem 0;
+  word-break: break-all;
+}
+
+.email-instructions {
+  text-align: left;
+  width: 100%;
+}
+
+.email-instructions h3 {
+  color: #1f2937;
+  margin: 0 0 1rem 0;
+  text-align: center;
+}
+
+.email-instructions ol {
+  color: #374151;
+  line-height: 1.8;
+  padding-left: 1.5rem;
+}
+
+.email-instructions li {
+  margin: 0.5rem 0;
+}
+
+.email-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+}
+
+.primary-btn, .secondary-btn {
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  text-decoration: none;
+  text-align: center;
+  cursor: pointer;
+  border: none;
+  font-size: 1rem;
+  transition: all 0.2s;
+}
+
+.primary-btn {
+  background: #4f46e5;
+  color: white;
+}
+
+.primary-btn:hover {
+  background: #4338ca;
+}
+
+.secondary-btn {
+  background: #f9fafb;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.secondary-btn:hover {
+  background: #f3f4f6;
+}
+
+.secondary-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.resend-success, .resend-error {
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.9rem;
+  width: 100%;
+}
+
+.resend-success {
+  background: #d1fae5;
+  color: #059669;
+  border: 1px solid #a7f3d0;
+}
+
+.resend-error {
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.help-text {
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+.help-text p {
+  margin: 0;
+}
+
 .form-field {
   display: flex;
   flex-direction: column;

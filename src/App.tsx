@@ -236,6 +236,7 @@ function App() {
       <Router>
         <Routes>
           <Route path="/signup" element={<SignupPage onLogin={handleLogin} />} />
+          <Route path="/check-email" element={<CheckEmailPage />} />
           <Route path="/verify-email" element={<EmailVerificationPage />} />
           <Route path="/success" element={<SuccessPage />} />
           <Route path="/subscription-return" element={<SubscriptionReturnPage />} />
@@ -1192,8 +1193,8 @@ function SignupPage({ onLogin }: { onLogin: (userData: User, token: string) => v
         formData.password, 
         formData.company || undefined
       );
-      setSuccess(response.message || 'Registration successful! Please check your email to verify your account.');
-      setFormData({ name: '', email: '', password: '', confirmPassword: '', company: '' });
+      // Redirect to check email page with email parameter
+      window.location.href = `/check-email?email=${encodeURIComponent(formData.email)}`;
     } catch (error: any) {
       setError(error.response?.data?.error || 'Signup failed. Please try again.');
     } finally {
@@ -1549,6 +1550,113 @@ function SubscriptionReturnPage() {
             <strong>Next billing:</strong> 30 days from today<br/>
             Redirecting to dashboard in a few seconds...
           </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Check Email Page Component
+function CheckEmailPage() {
+  const [email, setEmail] = useState('');
+  const [resendStatus, setResendStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const emailParam = urlParams.get('email');
+    if (emailParam) {
+      setEmail(emailParam);
+    }
+  }, []);
+
+  const handleResendEmail = async () => {
+    setResendStatus('sending');
+    try {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3001'}/api/auth/resend-verification`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      });
+      
+      if (response.ok) {
+        setResendStatus('sent');
+      } else {
+        setResendStatus('error');
+      }
+    } catch (error) {
+      console.error('Failed to resend verification email:', error);
+      setResendStatus('error');
+    }
+  };
+
+  return (
+    <div className="auth-page">
+      <div className="auth-container">
+        <div className="auth-header">
+          <div className="auth-logo">
+            <Zap className="auth-logo-icon" />
+            <span className="auth-logo-text">QuickBill Pro</span>
+          </div>
+          <h1>Check Your Email</h1>
+          <p>We've sent a verification link to your email address</p>
+        </div>
+
+        <div className="check-email-content">
+          <div className="email-icon">📧</div>
+          
+          <div className="email-info">
+            <h2>Verification Email Sent</h2>
+            <p>We've sent a verification link to:</p>
+            <div className="email-address">{email}</div>
+          </div>
+
+          <div className="email-instructions">
+            <h3>What to do next:</h3>
+            <ol>
+              <li>Check your email inbox (and spam folder)</li>
+              <li>Click the verification link in the email</li>
+              <li>Return here to log in</li>
+            </ol>
+          </div>
+
+          <div className="email-actions">
+            <Link to="/" className="primary-btn">
+              Go to Login
+            </Link>
+            
+            <button 
+              onClick={handleResendEmail}
+              className="secondary-btn"
+              disabled={resendStatus === 'sending'}
+            >
+              {resendStatus === 'sending' ? 'Sending...' : 
+               resendStatus === 'sent' ? 'Email Sent!' : 
+               'Resend Verification Email'}
+            </button>
+          </div>
+
+          {resendStatus === 'sent' && (
+            <div className="resend-success">
+              ✅ Verification email sent again! Check your inbox.
+            </div>
+          )}
+
+          {resendStatus === 'error' && (
+            <div className="resend-error">
+              ❌ Failed to resend email. Please try again later.
+            </div>
+          )}
+
+          <div className="help-text">
+            <p>
+              Didn't receive the email? Check your spam folder or{' '}
+              <Link to="/signup" className="auth-link">
+                try signing up again
+              </Link>
+            </p>
+          </div>
         </div>
       </div>
     </div>

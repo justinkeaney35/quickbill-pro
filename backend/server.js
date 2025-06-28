@@ -33,16 +33,56 @@ app.use(express.json());
 // Trust proxy for Railway
 app.set('trust proxy', 1);
 
-// Email transporter (placeholder - will be configured with actual SMTP)
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: process.env.SMTP_PORT || 587,
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
+// Email transporter setup
+let transporter;
+
+const setupEmailTransporter = async () => {
+  try {
+    if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+      // Use configured SMTP
+      transporter = nodemailer.createTransporter({
+        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+        port: process.env.SMTP_PORT || 587,
+        secure: false,
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS
+        }
+      });
+      console.log('Using configured SMTP for email delivery');
+    } else {
+      // Use Ethereal Email for testing (creates test account automatically)
+      const testAccount = await nodemailer.createTestAccount();
+      transporter = nodemailer.createTransporter({
+        host: 'smtp.ethereal.email',
+        port: 587,
+        secure: false,
+        auth: {
+          user: testAccount.user,
+          pass: testAccount.pass
+        }
+      });
+      console.log('Using Ethereal Email for testing');
+      console.log('Ethereal credentials:', { user: testAccount.user, pass: testAccount.pass });
+    }
+  } catch (error) {
+    console.error('Email setup error:', error);
+    // Create a dummy transporter that logs
+    transporter = {
+      sendMail: async (mailOptions) => {
+        console.log('Email would be sent:', {
+          to: mailOptions.to,
+          subject: mailOptions.subject,
+          html: mailOptions.html?.substring(0, 200) + '...'
+        });
+        return { messageId: 'dummy-' + Date.now() };
+      }
+    };
   }
-});
+};
+
+// Initialize email on startup
+setupEmailTransporter();
 
 // JWT middleware for authentication
 const authenticateToken = (req, res, next) => {
@@ -215,6 +255,90 @@ app.get('/api/auth/verify-email', async (req, res) => {
   }
 });
 
+// Resend verification email
+app.post('/api/auth/resend-verification', async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    // Find user
+    const result = await pool.query('SELECT id, name, email, email_verified FROM users WHERE email = $1', [email]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = result.rows[0];
+
+    if (user.email_verified) {
+      return res.status(400).json({ error: 'Email is already verified' });
+    }
+
+    // Generate new verification token
+    const verificationToken = require('crypto').randomBytes(32).toString('hex');
+
+    // Update user with new token
+    await pool.query(
+      'UPDATE users SET verification_token = $1 WHERE id = $2',
+      [verificationToken, user.id]
+    );
+
+    // Send verification email
+    const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email?token=${verificationToken}`;
+    
+    const mailOptions = {
+      from: process.env.FROM_EMAIL || 'noreply@quickbillpro.com',
+      to: email,
+      subject: 'QuickBill Pro - Verify your email address',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="text-align: center; margin-bottom: 30px;">
+            <h1 style="color: #4F46E5; margin: 0;">⚡ QuickBill Pro</h1>
+            <p style="color: #6B7280; margin: 5px 0 0 0;">Professional Invoicing Made Simple</p>
+          </div>
+          
+          <h2 style="color: #1F2937;">Hi ${user.name}!</h2>
+          
+          <p style="color: #374151; line-height: 1.6;">Please verify your email address to complete your registration and start using QuickBill Pro.</p>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${verificationUrl}" style="background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">Verify Email Address</a>
+          </div>
+          
+          <p style="color: #6B7280; font-size: 14px; line-height: 1.6;">If the button doesn't work, copy and paste this link into your browser:<br>
+          <a href="${verificationUrl}" style="color: #4F46E5;">${verificationUrl}</a></p>
+          
+          <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;">
+          
+          <p style="color: #6B7280; font-size: 14px; text-align: center;">Need help? Contact us at support@quickbillpro.com</p>
+        </div>
+      `
+    };
+
+    try {
+      const info = await transporter.sendMail(mailOptions);
+      console.log(`Verification email resent to ${email}`);
+      
+      // If using Ethereal, log the preview URL
+      if (nodemailer.getTestMessageUrl(info)) {
+        console.log('Email preview URL:', nodemailer.getTestMessageUrl(info));
+      }
+
+      res.json({ message: 'Verification email sent successfully!' });
+    } catch (emailError) {
+      console.error('Failed to resend verification email:', emailError);
+      res.status(500).json({ error: 'Failed to send verification email. Please try again later.' });
+    }
+
+  } catch (error) {
+    console.error('Resend verification error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Register user
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -293,11 +417,16 @@ app.post('/api/auth/register', async (req, res) => {
     };
 
     try {
-      await transporter.sendMail(welcomeMailOptions);
+      const info = await transporter.sendMail(welcomeMailOptions);
       console.log(`Verification email sent to ${email}`);
+      
+      // If using Ethereal, log the preview URL
+      if (nodemailer.getTestMessageUrl(info)) {
+        console.log('Email preview URL:', nodemailer.getTestMessageUrl(info));
+      }
     } catch (emailError) {
       console.error('Failed to send verification email:', emailError);
-      // Don't fail registration if email fails
+      // Still register the user but log the error
     }
 
     res.status(201).json({
@@ -332,8 +461,8 @@ app.post('/api/auth/login', async (req, res) => {
 
     const user = result.rows[0];
 
-    // Check if email is verified (skip for existing users who don't have this field set)
-    if (user.email_verified === false) {
+    // Check if email is verified (required for all users)
+    if (!user.email_verified) {
       return res.status(400).json({ 
         error: 'Please verify your email address before logging in. Check your inbox for the verification link.' 
       });
