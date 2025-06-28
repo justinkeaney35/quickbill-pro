@@ -1572,7 +1572,7 @@ function CheckEmailPage() {
   const handleResendEmail = async () => {
     setResendStatus('sending');
     try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3001'}/api/auth/resend-verification`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3001/api'}/auth/resend-verification`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1680,7 +1680,7 @@ function EmailVerificationPage() {
       }
 
       try {
-        const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3001'}/api/auth/verify-email?token=${token}`);
+        const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3001/api'}/auth/verify-email?token=${token}`);
         const data = await response.json();
         
         if (response.ok) {
