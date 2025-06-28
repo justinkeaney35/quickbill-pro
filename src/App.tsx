@@ -348,8 +348,8 @@ function Dashboard({ user, invoices }: { user: User; invoices: Invoice[] }) {
           <div className="stat-label">Total Invoices</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">{user.invoicesThisMonth}/{user.maxInvoices}</div>
-          <div className="stat-label">This Month</div>
+          <div className="stat-value">{user.invoicesThisMonth}/{user.maxInvoices === -1 ? '∞' : user.maxInvoices}</div>
+          <div className="stat-label">This Month ({user.plan})</div>
         </div>
       </div>
 
@@ -408,7 +408,7 @@ function InvoicesTab({
 
       {!canCreateInvoice && (
         <div className="upgrade-notice">
-          You've reached your monthly limit. <span className="upgrade-link" onClick={() => window.location.hash = 'pricing'}>Upgrade your plan</span> to create more invoices.
+          You've reached your monthly limit ({user.invoicesThisMonth}/{user.maxInvoices}). <span className="upgrade-link" onClick={() => window.location.hash = 'pricing'}>Upgrade your plan</span> to create more invoices.
         </div>
       )}
 
