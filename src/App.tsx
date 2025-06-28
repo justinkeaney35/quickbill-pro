@@ -151,43 +151,28 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  const [invoices, setInvoices] = useState<Invoice[]>([
-    {
-      id: '1',
-      invoiceNumber: 'INV-001',
-      clientName: 'Acme Corp',
-      clientEmail: 'billing@acme.com',
-      clientAddress: '123 Business St, City, State 12345',
-      date: '2024-01-15',
-      dueDate: '2024-02-14',
-      items: [
-        {
-          id: '1',
-          description: 'Web Development Services',
-          quantity: 40,
-          rate: 75,
-          amount: 3000
-        }
-      ],
-      notes: 'Thank you for your business!',
-      status: 'sent',
-      total: 3000,
-      createdAt: '2024-01-15'
-    }
-  ]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
 
-  const [clients, setClients] = useState<Client[]>([
-    {
-      id: '1',
-      name: 'Acme Corp',
-      email: 'billing@acme.com',
-      address: '123 Business St, City, State 12345',
-      phone: '(555) 123-4567',
-      company: 'Acme Corporation'
-    }
-  ]);
+  const [clients, setClients] = useState<Client[]>([]);
 
   const [activeTab, setActiveTab] = useState('dashboard');
+
+  const loadUserData = async () => {
+    try {
+      // Load invoices and clients from API
+      const [invoicesData, clientsData] = await Promise.all([
+        invoicesAPI.getAll(),
+        clientsAPI.getAll()
+      ]);
+      setInvoices(invoicesData);
+      setClients(clientsData);
+    } catch (error) {
+      console.error('Error loading user data:', error);
+      // Keep empty arrays if API fails
+      setInvoices([]);
+      setClients([]);
+    }
+  };
 
   // Check for existing auth token on app load
   useEffect(() => {
@@ -200,6 +185,8 @@ function App() {
           const parsedUser = JSON.parse(userData);
           setUser(parsedUser);
           setIsAuthenticated(true);
+          // Load user's data if already authenticated
+          await loadUserData();
         } catch (error) {
           localStorage.removeItem('quickbill_token');
           localStorage.removeItem('quickbill_user');
@@ -211,11 +198,14 @@ function App() {
     checkAuth();
   }, []);
 
-  const handleLogin = (userData: User, token: string) => {
+  const handleLogin = async (userData: User, token: string) => {
     localStorage.setItem('quickbill_token', token);
     localStorage.setItem('quickbill_user', JSON.stringify(userData));
     setUser(userData);
     setIsAuthenticated(true);
+    
+    // Load user's data after login
+    await loadUserData();
   };
 
   const handleLogout = () => {
@@ -224,6 +214,9 @@ function App() {
     setUser(null);
     setIsAuthenticated(false);
     setActiveTab('dashboard');
+    // Clear user data
+    setInvoices([]);
+    setClients([]);
   };
 
   if (isLoading) {
@@ -460,9 +453,15 @@ function InvoicesTab({
         <CreateInvoiceModal 
           onClose={() => setShowCreateForm(false)} 
           clients={clients}
-          onSave={(invoice) => {
-            setInvoices([...invoices, invoice]);
-            setShowCreateForm(false);
+          onSave={async (invoiceData) => {
+            try {
+              const newInvoice = await invoicesAPI.create(invoiceData);
+              setInvoices([...invoices, newInvoice]);
+              setShowCreateForm(false);
+            } catch (error) {
+              console.error('Error creating invoice:', error);
+              alert('Failed to create invoice. Please try again.');
+            }
           }}
         />
       )}
@@ -478,7 +477,7 @@ function CreateInvoiceModal({
 }: { 
   onClose: () => void; 
   clients: Client[];
-  onSave: (invoice: Invoice) => void;
+  onSave: (invoiceData: any) => void;
 }) {
   const [formData, setFormData] = useState({
     clientId: '',
@@ -520,22 +519,20 @@ function CreateInvoiceModal({
     e.preventDefault();
     if (!selectedClient) return;
 
-    const newInvoice: Invoice = {
-      id: Date.now().toString(),
-      invoiceNumber: `INV-${String(Date.now()).slice(-3)}`,
-      clientName: selectedClient.name,
-      clientEmail: selectedClient.email,
-      clientAddress: selectedClient.address,
+    const invoiceData = {
+      clientId: formData.clientId,
       date: new Date().toISOString().split('T')[0],
       dueDate: formData.dueDate,
-      items: items.filter(item => item.description.trim()),
+      items: items.filter(item => item.description.trim()).map(item => ({
+        description: item.description,
+        quantity: item.quantity,
+        rate: item.rate
+      })),
       notes: formData.notes,
-      status: 'draft',
-      total,
-      createdAt: new Date().toISOString()
+      taxRate: 0
     };
 
-    onSave(newInvoice);
+    onSave(invoiceData);
   };
 
   return (
@@ -700,9 +697,15 @@ function ClientsTab({
       {showCreateForm && (
         <CreateClientModal 
           onClose={() => setShowCreateForm(false)}
-          onSave={(client) => {
-            setClients([...clients, client]);
-            setShowCreateForm(false);
+          onSave={async (clientData) => {
+            try {
+              const newClient = await clientsAPI.create(clientData);
+              setClients([...clients, newClient]);
+              setShowCreateForm(false);
+            } catch (error) {
+              console.error('Error creating client:', error);
+              alert('Failed to create client. Please try again.');
+            }
           }}
         />
       )}
@@ -716,7 +719,7 @@ function CreateClientModal({
   onSave 
 }: { 
   onClose: () => void; 
-  onSave: (client: Client) => void;
+  onSave: (clientData: any) => void;
 }) {
   const [formData, setFormData] = useState({
     name: '',
@@ -728,11 +731,7 @@ function CreateClientModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const newClient: Client = {
-      id: Date.now().toString(),
-      ...formData
-    };
-    onSave(newClient);
+    onSave(formData);
   };
 
   return (
