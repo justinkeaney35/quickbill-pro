@@ -42,14 +42,24 @@ const setupEmailTransporter = async () => {
       // Use configured SMTP
       transporter = nodemailer.createTransporter({
         host: process.env.SMTP_HOST || 'smtp.gmail.com',
-        port: process.env.SMTP_PORT || 587,
+        port: parseInt(process.env.SMTP_PORT) || 587,
         secure: false,
         auth: {
           user: process.env.SMTP_USER,
-          pass: process.env.SMTP_PASS
+          pass: process.env.SMTP_PASS.replace(/\s/g, '') // Remove any spaces from app password
         }
       });
       console.log('Using configured SMTP for email delivery');
+      console.log('SMTP Host:', process.env.SMTP_HOST);
+      console.log('SMTP User:', process.env.SMTP_USER);
+      
+      // Test the connection
+      try {
+        await transporter.verify();
+        console.log('SMTP connection verified successfully');
+      } catch (verifyError) {
+        console.error('SMTP verification failed:', verifyError);
+      }
     } else {
       // Use Ethereal Email for testing (creates test account automatically)
       const testAccount = await nodemailer.createTestAccount();
