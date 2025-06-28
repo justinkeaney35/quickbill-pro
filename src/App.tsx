@@ -236,6 +236,7 @@ function App() {
       <Router>
         <Routes>
           <Route path="/signup" element={<SignupPage onLogin={handleLogin} />} />
+          <Route path="/verify-email" element={<EmailVerificationPage />} />
           <Route path="/success" element={<SuccessPage />} />
           <Route path="/subscription-return" element={<SubscriptionReturnPage />} />
           <Route path="/*" element={<LoginPage onLogin={handleLogin} />} />
@@ -1093,6 +1094,56 @@ function LoginPage({ onLogin }: { onLogin: (userData: User, token: string) => vo
   );
 }
 
+// Password Strength Component
+function PasswordStrength({ password }: { password: string }) {
+  const checkStrength = (pwd: string) => {
+    const requirements = {
+      length: pwd.length >= 8,
+      uppercase: /[A-Z]/.test(pwd),
+      lowercase: /[a-z]/.test(pwd),
+      number: /\d/.test(pwd),
+      special: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd)
+    };
+
+    const score = Object.values(requirements).filter(Boolean).length;
+    const strength = score <= 2 ? 'weak' : score <= 4 ? 'medium' : 'strong';
+    
+    return { requirements, score, strength };
+  };
+
+  const { requirements, score, strength } = checkStrength(password);
+
+  if (!password) return null;
+
+  return (
+    <div className="password-strength">
+      <div className="strength-bar">
+        <div className={`strength-fill strength-${strength}`} style={{ width: `${(score / 5) * 100}%` }}></div>
+      </div>
+      <div className="strength-text">
+        Password strength: <span className={`strength-${strength}`}>{strength}</span>
+      </div>
+      <div className="requirements">
+        <div className={requirements.length ? 'req-met' : 'req-unmet'}>
+          {requirements.length ? '✓' : '○'} At least 8 characters
+        </div>
+        <div className={requirements.uppercase ? 'req-met' : 'req-unmet'}>
+          {requirements.uppercase ? '✓' : '○'} One uppercase letter
+        </div>
+        <div className={requirements.lowercase ? 'req-met' : 'req-unmet'}>
+          {requirements.lowercase ? '✓' : '○'} One lowercase letter
+        </div>
+        <div className={requirements.number ? 'req-met' : 'req-unmet'}>
+          {requirements.number ? '✓' : '○'} One number
+        </div>
+        <div className={requirements.special ? 'req-met' : 'req-unmet'}>
+          {requirements.special ? '✓' : '○'} One special character
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Signup Page Component
 function SignupPage({ onLogin }: { onLogin: (userData: User, token: string) => void }) {
   const [formData, setFormData] = useState({
@@ -1104,6 +1155,18 @@ function SignupPage({ onLogin }: { onLogin: (userData: User, token: string) => v
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const validatePassword = (password: string) => {
+    const requirements = {
+      length: password.length >= 8,
+      uppercase: /[A-Z]/.test(password),
+      lowercase: /[a-z]/.test(password),
+      number: /\d/.test(password),
+      special: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)
+    };
+    return Object.values(requirements).every(Boolean);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1116,8 +1179,8 @@ function SignupPage({ onLogin }: { onLogin: (userData: User, token: string) => v
       return;
     }
 
-    if (formData.password.length < 6) {
-      setError('Password must be at least 6 characters long');
+    if (!validatePassword(formData.password)) {
+      setError('Password must be at least 8 characters long and include uppercase, lowercase, number, and special character');
       setIsLoading(false);
       return;
     }
@@ -1129,7 +1192,8 @@ function SignupPage({ onLogin }: { onLogin: (userData: User, token: string) => v
         formData.password, 
         formData.company || undefined
       );
-      onLogin(response.user, response.token);
+      setSuccess(response.message || 'Registration successful! Please check your email to verify your account.');
+      setFormData({ name: '', email: '', password: '', confirmPassword: '', company: '' });
     } catch (error: any) {
       setError(error.response?.data?.error || 'Signup failed. Please try again.');
     } finally {
@@ -1153,6 +1217,11 @@ function SignupPage({ onLogin }: { onLogin: (userData: User, token: string) => v
           {error && (
             <div className="auth-error">
               {error}
+            </div>
+          )}
+          {success && (
+            <div className="auth-success">
+              {success}
             </div>
           )}
 
@@ -1209,6 +1278,7 @@ function SignupPage({ onLogin }: { onLogin: (userData: User, token: string) => v
                 required
               />
             </div>
+            <PasswordStrength password={formData.password} />
           </div>
 
           <div className="form-field">
@@ -1479,6 +1549,94 @@ function SubscriptionReturnPage() {
             <strong>Next billing:</strong> 30 days from today<br/>
             Redirecting to dashboard in a few seconds...
           </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Email Verification Page Component
+function EmailVerificationPage() {
+  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    const verifyEmail = async () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const token = urlParams.get('token');
+      
+      if (!token) {
+        setStatus('error');
+        setMessage('Invalid verification link. Please check your email for the correct link.');
+        return;
+      }
+
+      try {
+        const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3001'}/api/auth/verify-email?token=${token}`);
+        const data = await response.json();
+        
+        if (response.ok) {
+          setStatus('success');
+          setMessage(data.message);
+          // Redirect to login after 3 seconds
+          setTimeout(() => {
+            window.location.href = '/';
+          }, 3000);
+        } else {
+          setStatus('error');
+          setMessage(data.error || 'Verification failed. Please try again.');
+        }
+      } catch (error) {
+        console.error('Email verification error:', error);
+        setStatus('error');
+        setMessage('Failed to verify email. Please try again later.');
+      }
+    };
+
+    verifyEmail();
+  }, []);
+
+  return (
+    <div className="auth-page">
+      <div className="auth-container">
+        <div className="auth-header">
+          <div className="auth-logo">
+            <Zap className="auth-logo-icon" />
+            <span className="auth-logo-text">QuickBill Pro</span>
+          </div>
+          <h1>Email Verification</h1>
+        </div>
+
+        <div className="verification-content">
+          {status === 'loading' && (
+            <>
+              <div className="loading-spinner"></div>
+              <p>Verifying your email address...</p>
+            </>
+          )}
+          
+          {status === 'success' && (
+            <>
+              <div className="success-icon">✅</div>
+              <h2>Email Verified Successfully!</h2>
+              <p>{message}</p>
+              <p>You will be redirected to the login page in a few seconds...</p>
+              <Link to="/" className="auth-link">
+                Go to Login Now
+              </Link>
+            </>
+          )}
+          
+          {status === 'error' && (
+            <>
+              <div className="error-icon">❌</div>
+              <h2>Verification Failed</h2>
+              <p>{message}</p>
+              <Link to="/signup" className="auth-link">
+                Back to Sign Up
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </div>

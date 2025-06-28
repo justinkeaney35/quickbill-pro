@@ -76,6 +76,8 @@ const initDatabase = async () => {
         invoices_this_month INTEGER DEFAULT 0,
         max_invoices INTEGER DEFAULT 3,
         stripe_customer_id VARCHAR(255),
+        email_verified BOOLEAN DEFAULT false,
+        verification_token VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -163,10 +165,57 @@ initDatabase();
 
 // AUTH ROUTES
 
+// Verify email
+app.get('/api/auth/verify-email', async (req, res) => {
+  try {
+    const { token } = req.query;
+
+    if (!token) {
+      return res.status(400).json({ error: 'Verification token is required' });
+    }
+
+    // Find user with verification token
+    const result = await pool.query(
+      'SELECT id, email, email_verified FROM users WHERE verification_token = $1',
+      [token]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({ error: 'Invalid or expired verification token' });
+    }
+
+    const user = result.rows[0];
+
+    if (user.email_verified) {
+      return res.status(400).json({ error: 'Email is already verified' });
+    }
+
+    // Verify the email
+    await pool.query(
+      'UPDATE users SET email_verified = true, verification_token = NULL WHERE id = $1',
+      [user.id]
+    );
+
+    res.json({ message: 'Email verified successfully! You can now log in.' });
+
+  } catch (error) {
+    console.error('Email verification error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Register user
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { name, email, password, company } = req.body;
+
+    // Validate password strength
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,}$/;
+    if (!passwordRegex.test(password)) {
+      return res.status(400).json({ 
+        error: 'Password must be at least 8 characters long and contain uppercase, lowercase, number, and special character' 
+      });
+    }
 
     // Check if user already exists
     const existingUser = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
@@ -177,23 +226,71 @@ app.post('/api/auth/register', async (req, res) => {
     // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
 
+    // Generate verification token
+    const verificationToken = require('crypto').randomBytes(32).toString('hex');
+
     // Create user
     const result = await pool.query(
-      'INSERT INTO users (name, email, password_hash, company) VALUES ($1, $2, $3, $4) RETURNING id, name, email, company, plan, invoices_this_month, max_invoices',
-      [name, email, passwordHash, company]
+      'INSERT INTO users (name, email, password_hash, company, verification_token) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, company, plan, invoices_this_month, max_invoices, email_verified',
+      [name, email, passwordHash, company, verificationToken]
     );
 
     const user = result.rows[0];
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { userId: user.id, email: user.email },
-      process.env.JWT_SECRET || 'quickbill_secret_key',
-      { expiresIn: '7d' }
-    );
+    // Send verification email
+    const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email?token=${verificationToken}`;
+    
+    const welcomeMailOptions = {
+      from: process.env.FROM_EMAIL || 'noreply@quickbillpro.com',
+      to: email,
+      subject: 'Welcome to QuickBill Pro - Please verify your email',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="text-align: center; margin-bottom: 30px;">
+            <h1 style="color: #4F46E5; margin: 0;">⚡ QuickBill Pro</h1>
+            <p style="color: #6B7280; margin: 5px 0 0 0;">Professional Invoicing Made Simple</p>
+          </div>
+          
+          <h2 style="color: #1F2937;">Welcome ${name}!</h2>
+          
+          <p style="color: #374151; line-height: 1.6;">Thank you for joining QuickBill Pro! We're excited to help you streamline your invoicing process.</p>
+          
+          <div style="background: #F3F4F6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3 style="color: #1F2937; margin: 0 0 10px 0;">Getting Started:</h3>
+            <ul style="color: #374151; margin: 0; padding-left: 20px;">
+              <li>Create and manage professional invoices</li>
+              <li>Track payments and client information</li>
+              <li>Accept payments with integrated Stripe</li>
+              <li>Send invoices directly to your clients</li>
+            </ul>
+          </div>
+          
+          <p style="color: #374151; line-height: 1.6;">To get started, please verify your email address by clicking the button below:</p>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${verificationUrl}" style="background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">Verify Email Address</a>
+          </div>
+          
+          <p style="color: #6B7280; font-size: 14px; line-height: 1.6;">If the button doesn't work, copy and paste this link into your browser:<br>
+          <a href="${verificationUrl}" style="color: #4F46E5;">${verificationUrl}</a></p>
+          
+          <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;">
+          
+          <p style="color: #6B7280; font-size: 14px; text-align: center;">Need help? Contact us at support@quickbillpro.com</p>
+        </div>
+      `
+    };
+
+    try {
+      await transporter.sendMail(welcomeMailOptions);
+      console.log(`Verification email sent to ${email}`);
+    } catch (emailError) {
+      console.error('Failed to send verification email:', emailError);
+      // Don't fail registration if email fails
+    }
 
     res.status(201).json({
-      token,
+      message: 'Registration successful! Please check your email to verify your account.',
       user: {
         id: user.id,
         name: user.name,
@@ -201,7 +298,8 @@ app.post('/api/auth/register', async (req, res) => {
         company: user.company,
         plan: user.plan,
         invoicesThisMonth: user.invoices_this_month,
-        maxInvoices: user.max_invoices
+        maxInvoices: user.max_invoices,
+        emailVerified: user.email_verified
       }
     });
   } catch (error) {
@@ -222,6 +320,13 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const user = result.rows[0];
+
+    // Check if email is verified
+    if (!user.email_verified) {
+      return res.status(400).json({ 
+        error: 'Please verify your email address before logging in. Check your inbox for the verification link.' 
+      });
+    }
 
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
