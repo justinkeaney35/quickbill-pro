@@ -3,7 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-ro
 import { Zap, FileText, Users, Settings, CreditCard, PlusCircle, Download, Send, Eye, Mail, Lock, User, Building, X } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, EmbeddedCheckout as StripeEmbeddedCheckout, EmbeddedCheckoutProvider } from '@stripe/react-stripe-js';
-import { authAPI, subscriptionsAPI } from './utils/api';
+import { authAPI, subscriptionsAPI, invoicesAPI, clientsAPI } from './utils/api';
 import './App.css';
 
 // Initialize Stripe
