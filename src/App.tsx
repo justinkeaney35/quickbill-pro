@@ -388,7 +388,7 @@ function InvoicesTab({
 }) {
   const [showCreateForm, setShowCreateForm] = useState(false);
 
-  const canCreateInvoice = user.invoicesThisMonth < user.maxInvoices || user.plan !== 'free';
+  const canCreateInvoice = (user.plan === 'free' && user.invoicesThisMonth < user.maxInvoices) || user.plan !== 'free';
 
   return (
     <div className="invoices-tab">
@@ -458,6 +458,13 @@ function InvoicesTab({
               const newInvoice = await invoicesAPI.create(invoiceData);
               setInvoices([...invoices, newInvoice]);
               setShowCreateForm(false);
+              // Update user's invoice count
+              if (user) {
+                setUser({
+                  ...user,
+                  invoicesThisMonth: user.invoicesThisMonth + 1
+                });
+              }
             } catch (error) {
               console.error('Error creating invoice:', error);
               alert('Failed to create invoice. Please try again.');

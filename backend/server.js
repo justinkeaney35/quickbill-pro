@@ -179,7 +179,7 @@ app.post('/api/auth/register', async (req, res) => {
 
     // Create user
     const result = await pool.query(
-      'INSERT INTO users (name, email, password_hash, company) VALUES ($1, $2, $3, $4) RETURNING id, name, email, company, plan',
+      'INSERT INTO users (name, email, password_hash, company) VALUES ($1, $2, $3, $4) RETURNING id, name, email, company, plan, invoices_this_month, max_invoices',
       [name, email, passwordHash, company]
     );
 
@@ -199,7 +199,9 @@ app.post('/api/auth/register', async (req, res) => {
         name: user.name,
         email: user.email,
         company: user.company,
-        plan: user.plan
+        plan: user.plan,
+        invoicesThisMonth: user.invoices_this_month,
+        maxInvoices: user.max_invoices
       }
     });
   } catch (error) {
