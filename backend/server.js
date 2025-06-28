@@ -65,6 +65,7 @@ const authenticateToken = (req, res, next) => {
 // Database initialization (creates tables if they don't exist)
 const initDatabase = async () => {
   try {
+    // Create users table with basic structure first
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -76,11 +77,21 @@ const initDatabase = async () => {
         invoices_this_month INTEGER DEFAULT 0,
         max_invoices INTEGER DEFAULT 3,
         stripe_customer_id VARCHAR(255),
-        email_verified BOOLEAN DEFAULT false,
-        verification_token VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Add new columns for email verification if they don't exist
+    try {
+      await pool.query(`
+        ALTER TABLE users 
+        ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT true,
+        ADD COLUMN IF NOT EXISTS verification_token VARCHAR(255)
+      `);
+      console.log('Added email verification columns to users table');
+    } catch (alterError) {
+      console.log('Email verification columns already exist or error adding them:', alterError.message);
+    }
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS clients (
@@ -231,8 +242,8 @@ app.post('/api/auth/register', async (req, res) => {
 
     // Create user
     const result = await pool.query(
-      'INSERT INTO users (name, email, password_hash, company, verification_token) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, company, plan, invoices_this_month, max_invoices, email_verified',
-      [name, email, passwordHash, company, verificationToken]
+      'INSERT INTO users (name, email, password_hash, company, verification_token, email_verified) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, email, company, plan, invoices_this_month, max_invoices, email_verified',
+      [name, email, passwordHash, company, verificationToken, false]
     );
 
     const user = result.rows[0];
@@ -321,8 +332,8 @@ app.post('/api/auth/login', async (req, res) => {
 
     const user = result.rows[0];
 
-    // Check if email is verified
-    if (!user.email_verified) {
+    // Check if email is verified (skip for existing users who don't have this field set)
+    if (user.email_verified === false) {
       return res.status(400).json({ 
         error: 'Please verify your email address before logging in. Check your inbox for the verification link.' 
       });
