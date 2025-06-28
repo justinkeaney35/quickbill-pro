@@ -1210,6 +1210,25 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Temporary cleanup endpoint - remove after use
+app.delete('/api/admin/cleanup-user/:email', async (req, res) => {
+  try {
+    const { email } = req.params;
+    
+    // Delete user and all related data
+    const result = await pool.query('DELETE FROM users WHERE email = $1 RETURNING email', [email]);
+    
+    if (result.rows.length > 0) {
+      res.json({ message: `User ${email} deleted successfully` });
+    } else {
+      res.status(404).json({ error: 'User not found' });
+    }
+  } catch (error) {
+    console.error('User deletion error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
