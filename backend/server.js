@@ -40,7 +40,7 @@ const setupEmailTransporter = async () => {
   try {
     if (process.env.SMTP_USER && process.env.SMTP_PASS) {
       // Use configured SMTP
-      transporter = nodemailer.createTransporter({
+      transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST || 'smtp.gmail.com',
         port: parseInt(process.env.SMTP_PORT) || 587,
         secure: false,
@@ -63,7 +63,7 @@ const setupEmailTransporter = async () => {
     } else {
       // Use Ethereal Email for testing (creates test account automatically)
       const testAccount = await nodemailer.createTestAccount();
-      transporter = nodemailer.createTransporter({
+      transporter = nodemailer.createTransport({
         host: 'smtp.ethereal.email',
         port: 587,
         secure: false,
