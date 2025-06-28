@@ -306,7 +306,7 @@ function App() {
 
           <main className="content">
             {activeTab === 'dashboard' && user && <Dashboard user={user} invoices={invoices} />}
-            {activeTab === 'invoices' && user && <InvoicesTab invoices={invoices} setInvoices={setInvoices} user={user} clients={clients} />}
+            {activeTab === 'invoices' && user && <InvoicesTab invoices={invoices} setInvoices={setInvoices} user={user} setUser={setUser} clients={clients} />}
             {activeTab === 'clients' && <ClientsTab clients={clients} setClients={setClients} />}
             {activeTab === 'pricing' && user && <PricingTab user={user} />}
             {activeTab === 'settings' && user && <SettingsTab user={user} setUser={setUser} />}
@@ -379,11 +379,13 @@ function InvoicesTab({
   invoices, 
   setInvoices, 
   user, 
+  setUser,
   clients 
 }: { 
   invoices: Invoice[]; 
   setInvoices: React.Dispatch<React.SetStateAction<Invoice[]>>;
   user: User;
+  setUser: React.Dispatch<React.SetStateAction<User | null>>;
   clients: Client[];
 }) {
   const [showCreateForm, setShowCreateForm] = useState(false);
