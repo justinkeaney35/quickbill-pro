@@ -230,8 +230,10 @@ initDatabase();
 app.get('/api/auth/verify-email', async (req, res) => {
   try {
     const { token } = req.query;
+    console.log('Verification attempt with token:', token ? token.substring(0, 8) + '...' : 'null');
 
     if (!token) {
+      console.log('No token provided');
       return res.status(400).json({ error: 'Verification token is required' });
     }
 
@@ -241,22 +243,28 @@ app.get('/api/auth/verify-email', async (req, res) => {
       [token]
     );
 
+    console.log('Users found with token:', result.rows.length);
+
     if (result.rows.length === 0) {
+      console.log('No user found with token');
       return res.status(400).json({ error: 'Invalid or expired verification token' });
     }
 
     const user = result.rows[0];
+    console.log('User found:', user.email, 'Already verified:', user.email_verified);
 
     if (user.email_verified) {
+      console.log('User already verified');
       return res.status(400).json({ error: 'Email is already verified' });
     }
 
     // Verify the email
-    await pool.query(
+    const updateResult = await pool.query(
       'UPDATE users SET email_verified = true, verification_token = NULL WHERE id = $1',
       [user.id]
     );
 
+    console.log('Update successful, rows affected:', updateResult.rowCount);
     res.json({ message: 'Email verified successfully! You can now log in.' });
 
   } catch (error) {
