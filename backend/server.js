@@ -1635,6 +1635,104 @@ app.post('/api/connect/create-embedded-onboarding', authenticateToken, async (re
 });
 
 
+// Update Connect account with business information
+app.post('/api/connect/update-business-info', authenticateToken, async (req, res) => {
+  try {
+    const { accountId, businessInfo } = req.body;
+    
+    if (!accountId) {
+      return res.status(400).json({ error: 'Account ID is required' });
+    }
+
+    // Update Stripe account with business information
+    const updateData = {};
+    
+    if (businessInfo.businessType) {
+      updateData.business_type = businessInfo.businessType;
+    }
+    
+    if (businessInfo.companyName) {
+      updateData.company = {
+        name: businessInfo.companyName,
+        tax_id: businessInfo.taxId || undefined
+      };
+    }
+    
+    if (businessInfo.firstName && businessInfo.lastName) {
+      updateData.individual = {
+        first_name: businessInfo.firstName,
+        last_name: businessInfo.lastName,
+        email: businessInfo.email,
+        phone: businessInfo.phone || undefined,
+        dob: businessInfo.dob ? {
+          day: parseInt(businessInfo.dob.day),
+          month: parseInt(businessInfo.dob.month),
+          year: parseInt(businessInfo.dob.year)
+        } : undefined,
+        address: businessInfo.address ? {
+          line1: businessInfo.address.line1,
+          line2: businessInfo.address.line2 || undefined,
+          city: businessInfo.address.city,
+          state: businessInfo.address.state,
+          postal_code: businessInfo.address.postal_code,
+          country: 'US'
+        } : undefined
+      };
+    }
+
+    const account = await stripe.accounts.update(accountId, updateData);
+    
+    res.json({ 
+      success: true,
+      account_id: account.id,
+      message: 'Business information updated successfully'
+    });
+
+  } catch (error) {
+    console.error('Update business info error:', error);
+    res.status(500).json({ 
+      error: 'Failed to update business information',
+      details: error.message
+    });
+  }
+});
+
+// Update Connect account with bank account information
+app.post('/api/connect/update-bank-account', authenticateToken, async (req, res) => {
+  try {
+    const { accountId, bankInfo } = req.body;
+    
+    if (!accountId) {
+      return res.status(400).json({ error: 'Account ID is required' });
+    }
+
+    // Create external account (bank account) for payouts
+    const externalAccount = await stripe.accounts.createExternalAccount(accountId, {
+      external_account: {
+        object: 'bank_account',
+        country: 'US',
+        currency: 'usd',
+        routing_number: bankInfo.routingNumber,
+        account_number: bankInfo.accountNumber,
+        account_holder_type: bankInfo.accountHolderType || 'individual'
+      }
+    });
+    
+    res.json({ 
+      success: true,
+      external_account_id: externalAccount.id,
+      message: 'Bank account added successfully'
+    });
+
+  } catch (error) {
+    console.error('Update bank account error:', error);
+    res.status(500).json({ 
+      error: 'Failed to add bank account',
+      details: error.message
+    });
+  }
+});
+
 // Get Connect account status
 app.get('/api/connect/account-status', authenticateToken, async (req, res) => {
   try {
