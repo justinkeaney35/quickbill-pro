@@ -798,15 +798,36 @@ function CreateInvoiceModal({
   clients: Client[];
   onSave: (invoiceData: any) => void;
 }) {
+  const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState({
     clientId: '',
     dueDate: '',
-    notes: ''
+    notes: '',
+    newClientMode: false,
+    newClient: {
+      name: '',
+      email: '',
+      address: '',
+      phone: '',
+      company: ''
+    }
   });
 
   const [items, setItems] = useState<InvoiceItem[]>([
     { id: '1', description: '', quantity: 1, rate: 0, amount: 0 }
   ]);
+
+  const [errors, setErrors] = useState<{[key: string]: string}>({});
+
+  // Set default due date to 30 days from now
+  useEffect(() => {
+    const thirtyDaysFromNow = new Date();
+    thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+    setFormData(prev => ({
+      ...prev,
+      dueDate: thirtyDaysFromNow.toISOString().split('T')[0]
+    }));
+  }, []);
 
   const addItem = () => {
     setItems([...items, {
@@ -816,6 +837,12 @@ function CreateInvoiceModal({
       rate: 0,
       amount: 0
     }]);
+  };
+
+  const removeItem = (id: string) => {
+    if (items.length > 1) {
+      setItems(items.filter(item => item.id !== id));
+    }
   };
 
   const updateItem = (id: string, field: keyof InvoiceItem, value: any) => {
@@ -831,18 +858,65 @@ function CreateInvoiceModal({
     }));
   };
 
+  const validateStep = (step: number): boolean => {
+    const newErrors: {[key: string]: string} = {};
+    
+    if (step === 1) {
+      if (formData.newClientMode) {
+        if (!formData.newClient.name.trim()) newErrors.newClientName = 'Name is required';
+        if (!formData.newClient.email.trim()) newErrors.newClientEmail = 'Email is required';
+        if (formData.newClient.email && !/\S+@\S+\.\S+/.test(formData.newClient.email)) {
+          newErrors.newClientEmail = 'Please enter a valid email';
+        }
+      } else {
+        if (!formData.clientId) newErrors.clientId = 'Please select a client';
+      }
+      if (!formData.dueDate) newErrors.dueDate = 'Due date is required';
+    }
+    
+    if (step === 2) {
+      const validItems = items.filter(item => item.description.trim());
+      if (validItems.length === 0) newErrors.items = 'At least one item is required';
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const nextStep = () => {
+    if (validateStep(currentStep)) {
+      setCurrentStep(currentStep + 1);
+    }
+  };
+
+  const prevStep = () => {
+    setCurrentStep(currentStep - 1);
+  };
+
   const total = items.reduce((sum, item) => sum + item.amount, 0);
+  const subtotal = total;
+  const tax = 0;
   const selectedClient = clients.find(c => c.id === formData.clientId);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedClient) return;
+    
+    if (!validateStep(1) || !validateStep(2)) {
+      return;
+    }
+
+    const validItems = items.filter(item => item.description.trim());
+    if (validItems.length === 0) {
+      setErrors({ items: 'At least one item is required' });
+      return;
+    }
 
     const invoiceData = {
-      clientId: formData.clientId,
+      clientId: formData.newClientMode ? 'new' : formData.clientId,
+      newClient: formData.newClientMode ? formData.newClient : undefined,
       date: new Date().toISOString().split('T')[0],
       dueDate: formData.dueDate,
-      items: items.filter(item => item.description.trim()).map(item => ({
+      items: validItems.map(item => ({
         description: item.description,
         quantity: item.quantity,
         rate: item.rate
@@ -854,128 +928,387 @@ function CreateInvoiceModal({
     onSave(invoiceData);
   };
 
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(amount);
+  };
+
   return (
     <div className="modal-overlay">
-      <div className="modal create-invoice-modal">
+      <div className="modal create-invoice-modal-new">
         <div className="modal-header">
-          <h2>Create New Invoice</h2>
+          <div className="header-content">
+            <h2>Create New Invoice</h2>
+            <div className="step-indicator">
+              <div className={`step ${currentStep >= 1 ? 'active' : ''}`}>
+                <span className="step-number">1</span>
+                <span className="step-label">Client & Date</span>
+              </div>
+              <div className={`step ${currentStep >= 2 ? 'active' : ''}`}>
+                <span className="step-number">2</span>
+                <span className="step-label">Items & Details</span>
+              </div>
+              <div className={`step ${currentStep >= 3 ? 'active' : ''}`}>
+                <span className="step-number">3</span>
+                <span className="step-label">Review</span>
+              </div>
+            </div>
+          </div>
           <button className="close-btn" onClick={onClose}>&times;</button>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="form-grid">
-            <div className="form-group">
-              <label>Client</label>
-              <select
-                value={formData.clientId}
-                onChange={(e) => setFormData({...formData, clientId: e.target.value})}
-                required
-              >
-                <option value="">Select a client</option>
-                {clients.map(client => (
-                  <option key={client.id} value={client.id}>{client.name}</option>
-                ))}
-              </select>
-            </div>
+        <div className="modal-body">
+          {currentStep === 1 && (
+            <div className="step-content">
+              <div className="section-header">
+                <h3>Client Information</h3>
+                <p>Select an existing client or add a new one</p>
+              </div>
 
-            <div className="form-group">
-              <label>Due Date</label>
-              <input
-                type="date"
-                value={formData.dueDate}
-                onChange={(e) => setFormData({...formData, dueDate: e.target.value})}
-                required
-              />
-            </div>
-          </div>
+              <div className="client-selection">
+                <div className="toggle-buttons">
+                  <button
+                    type="button"
+                    className={`toggle-btn ${!formData.newClientMode ? 'active' : ''}`}
+                    onClick={() => setFormData({...formData, newClientMode: false})}
+                  >
+                    <User className="btn-icon" />
+                    Existing Client
+                  </button>
+                  <button
+                    type="button"
+                    className={`toggle-btn ${formData.newClientMode ? 'active' : ''}`}
+                    onClick={() => setFormData({...formData, newClientMode: true})}
+                  >
+                    <PlusCircle className="btn-icon" />
+                    New Client
+                  </button>
+                </div>
 
-          <div className="items-section">
-            <h3>Invoice Items</h3>
-            <div className="items-header">
-              <span className="header-description">Description</span>
-              <span className="header-qty">Qty</span>
-              <span className="header-rate">Rate</span>
-              <span className="header-amount">Amount</span>
-            </div>
-            {items.map(item => (
-              <div key={item.id} className="item-row">
-                <div className="item-field" data-label="Description">
-                  <input
-                    type="text"
-                    placeholder="Description of service or product"
-                    value={item.description}
-                    onChange={(e) => updateItem(item.id, 'description', e.target.value)}
-                    className="description-input"
-                  />
-                </div>
-                <div className="item-field qty-field" data-label="Quantity">
-                  <input
-                    type="number"
-                    placeholder="1"
-                    min="1"
-                    value={item.quantity}
-                    onChange={(e) => updateItem(item.id, 'quantity', Number(e.target.value))}
-                    className="qty-input"
-                  />
-                </div>
-                <div className="item-field rate-field" data-label="Rate">
-                  <div className="currency-input">
-                    <span className="currency-symbol">$</span>
-                    <input
-                      type="text"
-                      placeholder="0.00"
-                      value={item.rate > 0 ? item.rate.toString() : ''}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        // Allow empty string, numbers, and one decimal point
-                        if (value === '' || /^\d*\.?\d*$/.test(value)) {
-                          const numValue = value === '' ? 0 : parseFloat(value);
-                          updateItem(item.id, 'rate', isNaN(numValue) ? 0 : numValue);
-                        }
-                      }}
-                      onBlur={(e) => {
-                        // Format to 2 decimal places when user leaves the field
-                        const value = parseFloat(e.target.value);
-                        if (!isNaN(value) && value > 0) {
-                          updateItem(item.id, 'rate', parseFloat(value.toFixed(2)));
-                        }
-                      }}
-                      className="rate-input"
-                    />
+                {!formData.newClientMode ? (
+                  <div className="form-group">
+                    <label>Select Client *</label>
+                    <select
+                      value={formData.clientId}
+                      onChange={(e) => setFormData({...formData, clientId: e.target.value})}
+                      className={errors.clientId ? 'error' : ''}
+                    >
+                      <option value="">Choose a client...</option>
+                      {clients.map(client => (
+                        <option key={client.id} value={client.id}>
+                          {client.name} - {client.email}
+                        </option>
+                      ))}
+                    </select>
+                    {errors.clientId && <span className="error-message">{errors.clientId}</span>}
                   </div>
+                ) : (
+                  <div className="new-client-form">
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Client Name *</label>
+                        <input
+                          type="text"
+                          value={formData.newClient.name}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            newClient: {...formData.newClient, name: e.target.value}
+                          })}
+                          placeholder="Enter client name"
+                          className={errors.newClientName ? 'error' : ''}
+                        />
+                        {errors.newClientName && <span className="error-message">{errors.newClientName}</span>}
+                      </div>
+                      <div className="form-group">
+                        <label>Email Address *</label>
+                        <input
+                          type="email"
+                          value={formData.newClient.email}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            newClient: {...formData.newClient, email: e.target.value}
+                          })}
+                          placeholder="client@example.com"
+                          className={errors.newClientEmail ? 'error' : ''}
+                        />
+                        {errors.newClientEmail && <span className="error-message">{errors.newClientEmail}</span>}
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Company</label>
+                        <input
+                          type="text"
+                          value={formData.newClient.company}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            newClient: {...formData.newClient, company: e.target.value}
+                          })}
+                          placeholder="Company name (optional)"
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Phone</label>
+                        <input
+                          type="tel"
+                          value={formData.newClient.phone}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            newClient: {...formData.newClient, phone: e.target.value}
+                          })}
+                          placeholder="Phone number (optional)"
+                        />
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label>Address</label>
+                      <textarea
+                        value={formData.newClient.address}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          newClient: {...formData.newClient, address: e.target.value}
+                        })}
+                        placeholder="Client address (optional)"
+                        rows={3}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="section-divider"></div>
+
+              <div className="section-header">
+                <h3>Invoice Details</h3>
+                <p>Set the due date and invoice terms</p>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Due Date *</label>
+                  <input
+                    type="date"
+                    value={formData.dueDate}
+                    onChange={(e) => setFormData({...formData, dueDate: e.target.value})}
+                    className={errors.dueDate ? 'error' : ''}
+                  />
+                  {errors.dueDate && <span className="error-message">{errors.dueDate}</span>}
                 </div>
-                <div className="item-field amount-field" data-label="Amount">
-                  <span className="amount">${item.amount.toFixed(2)}</span>
+                <div className="form-group">
+                  <label>Issue Date</label>
+                  <input
+                    type="date"
+                    value={new Date().toISOString().split('T')[0]}
+                    disabled
+                    className="disabled"
+                  />
+                  <small className="field-hint">Today's date will be used</small>
                 </div>
               </div>
-            ))}
-            <button type="button" onClick={addItem} className="add-item-btn">
-              Add Item
-            </button>
-          </div>
+            </div>
+          )}
 
-          <div className="form-group">
-            <label>Notes</label>
-            <textarea
-              value={formData.notes}
-              onChange={(e) => setFormData({...formData, notes: e.target.value})}
-              placeholder="Additional notes or terms..."
-            />
-          </div>
+          {currentStep === 2 && (
+            <div className="step-content">
+              <div className="section-header">
+                <h3>Invoice Items</h3>
+                <p>Add the products or services you're billing for</p>
+              </div>
 
-          <div className="total-section">
-            <strong>Total: ${total.toFixed(2)}</strong>
-          </div>
+              <div className="items-section-new">
+                <div className="items-header">
+                  <div className="header-cell description">Description</div>
+                  <div className="header-cell quantity">Qty</div>
+                  <div className="header-cell rate">Rate</div>
+                  <div className="header-cell amount">Amount</div>
+                  <div className="header-cell actions">Actions</div>
+                </div>
+                
+                {items.map((item, index) => (
+                  <div key={item.id} className="item-row-new">
+                    <div className="item-cell description">
+                      <input
+                        type="text"
+                        placeholder="Describe your service or product..."
+                        value={item.description}
+                        onChange={(e) => updateItem(item.id, 'description', e.target.value)}
+                        className="description-input-new"
+                      />
+                    </div>
+                    <div className="item-cell quantity">
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={item.quantity}
+                        onChange={(e) => updateItem(item.id, 'quantity', Number(e.target.value))}
+                        className="quantity-input-new"
+                      />
+                    </div>
+                    <div className="item-cell rate">
+                      <div className="currency-input-new">
+                        <span className="currency-symbol">$</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={item.rate > 0 ? item.rate : ''}
+                          onChange={(e) => updateItem(item.id, 'rate', parseFloat(e.target.value) || 0)}
+                          className="rate-input-new"
+                        />
+                      </div>
+                    </div>
+                    <div className="item-cell amount">
+                      <span className="amount-display">{formatCurrency(item.amount)}</span>
+                    </div>
+                    <div className="item-cell actions">
+                      {items.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeItem(item.id)}
+                          className="remove-item-btn"
+                          title="Remove item"
+                        >
+                          <X className="icon" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                
+                {errors.items && <div className="error-message">{errors.items}</div>}
+                
+                <button type="button" onClick={addItem} className="add-item-btn-new">
+                  <PlusCircle className="btn-icon" />
+                  Add Another Item
+                </button>
+              </div>
 
-          <div className="modal-actions">
+              <div className="section-divider"></div>
+
+              <div className="form-group">
+                <label>Notes & Terms</label>
+                <textarea
+                  value={formData.notes}
+                  onChange={(e) => setFormData({...formData, notes: e.target.value})}
+                  placeholder="Add any additional notes, terms, or special instructions..."
+                  rows={4}
+                  className="notes-textarea"
+                />
+                <small className="field-hint">This will appear at the bottom of your invoice</small>
+              </div>
+            </div>
+          )}
+
+          {currentStep === 3 && (
+            <div className="step-content">
+              <div className="section-header">
+                <h3>Review Your Invoice</h3>
+                <p>Double-check everything before creating your invoice</p>
+              </div>
+
+              <div className="review-section">
+                <div className="review-card">
+                  <h4>Client Information</h4>
+                  {formData.newClientMode ? (
+                    <div className="client-info">
+                      <p><strong>{formData.newClient.name}</strong></p>
+                      <p>{formData.newClient.email}</p>
+                      {formData.newClient.company && <p>{formData.newClient.company}</p>}
+                      {formData.newClient.address && <p>{formData.newClient.address}</p>}
+                    </div>
+                  ) : selectedClient ? (
+                    <div className="client-info">
+                      <p><strong>{selectedClient.name}</strong></p>
+                      <p>{selectedClient.email}</p>
+                      {selectedClient.company && <p>{selectedClient.company}</p>}
+                      {selectedClient.address && <p>{selectedClient.address}</p>}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="review-card">
+                  <h4>Invoice Details</h4>
+                  <div className="detail-row">
+                    <span>Issue Date:</span>
+                    <span>{new Date().toLocaleDateString()}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span>Due Date:</span>
+                    <span>{new Date(formData.dueDate).toLocaleDateString()}</span>
+                  </div>
+                </div>
+
+                <div className="review-card">
+                  <h4>Items</h4>
+                  <div className="items-summary">
+                    {items.filter(item => item.description.trim()).map((item, index) => (
+                      <div key={item.id} className="item-summary">
+                        <div className="item-summary-main">
+                          <span className="item-description">{item.description}</span>
+                          <span className="item-amount">{formatCurrency(item.amount)}</span>
+                        </div>
+                        <div className="item-summary-details">
+                          <span>{item.quantity} × {formatCurrency(item.rate)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="review-card total-card">
+                  <div className="total-breakdown">
+                    <div className="total-row">
+                      <span>Subtotal:</span>
+                      <span>{formatCurrency(subtotal)}</span>
+                    </div>
+                    <div className="total-row">
+                      <span>Tax:</span>
+                      <span>{formatCurrency(tax)}</span>
+                    </div>
+                    <div className="total-row final-total">
+                      <span>Total:</span>
+                      <span>{formatCurrency(total)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {formData.notes && (
+                  <div className="review-card">
+                    <h4>Notes</h4>
+                    <p className="notes-preview">{formData.notes}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="modal-footer">
+          <div className="footer-actions">
+            {currentStep > 1 && (
+              <button type="button" onClick={prevStep} className="prev-btn">
+                Back
+              </button>
+            )}
             <button type="button" onClick={onClose} className="cancel-btn">
               Cancel
             </button>
-            <button type="submit" className="save-btn">
-              Create Invoice
-            </button>
+            {currentStep < 3 ? (
+              <button type="button" onClick={nextStep} className="next-btn">
+                Continue
+              </button>
+            ) : (
+              <button type="button" onClick={handleSubmit} className="create-btn">
+                <FileText className="btn-icon" />
+                Create Invoice
+              </button>
+            )}
           </div>
-        </form>
+        </div>
       </div>
     </div>
   );
@@ -984,13 +1317,30 @@ function CreateInvoiceModal({
 // Stripe Setup Modal
 function StripeSetupModal({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(false);
+  const [embeddedMode, setEmbeddedMode] = useState(true);
+  const [accountSession, setAccountSession] = useState<{clientSecret: string; accountId: string} | null>(null);
 
   const handleSetupStripe = async () => {
     setLoading(true);
     try {
       const accountResult = await connectAPI.createAccount();
-      const linkResult = await connectAPI.createAccountLink(accountResult.accountId);
-      window.location.href = linkResult.url;
+      
+      if (embeddedMode) {
+        // Try embedded onboarding first
+        try {
+          const sessionResult = await connectAPI.createEmbeddedOnboarding(accountResult.accountId);
+          setAccountSession(sessionResult);
+        } catch (embeddedError) {
+          console.warn('Embedded onboarding not available, falling back to redirect:', embeddedError);
+          // Fall back to redirect mode
+          const linkResult = await connectAPI.createAccountLink(accountResult.accountId);
+          window.location.href = linkResult.url;
+        }
+      } else {
+        // Use redirect mode
+        const linkResult = await connectAPI.createAccountLink(accountResult.accountId);
+        window.location.href = linkResult.url;
+      }
     } catch (error) {
       console.error('Stripe setup error:', error);
       alert('Failed to setup Stripe. Please try again.');

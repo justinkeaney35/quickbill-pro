@@ -1455,6 +1455,8 @@ app.post('/api/subscriptions/cancel', authenticateToken, async (req, res) => {
 // Create or get Connect account for user
 app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
   try {
+    console.log('Creating Connect account for user:', req.user.userId);
+    
     // Check if user already has a Connect account
     const existingAccount = await pool.query(
       'SELECT stripe_account_id FROM connect_accounts WHERE user_id = $1',
@@ -1462,6 +1464,7 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
     );
 
     if (existingAccount.rows.length > 0) {
+      console.log('Account already exists:', existingAccount.rows[0].stripe_account_id);
       return res.json({ 
         accountId: existingAccount.rows[0].stripe_account_id,
         message: 'Account already exists' 
@@ -1470,7 +1473,20 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
 
     // Get user details
     const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.userId]);
+    
+    if (userResult.rows.length === 0) {
+      console.error('User not found:', req.user.userId);
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
     const user = userResult.rows[0];
+    console.log('Creating Stripe account for user:', user.email);
+
+    // Validate Stripe is properly configured
+    if (!process.env.STRIPE_SECRET_KEY) {
+      console.error('Stripe secret key not configured');
+      return res.status(500).json({ error: 'Payment processing not configured' });
+    }
 
     // Create Stripe Express account for direct payments
     const account = await stripe.accounts.create({
@@ -1490,11 +1506,13 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
         }
       },
       metadata: {
-        user_id: user.id,
+        user_id: user.id.toString(),
         user_email: user.email,
         platform: 'quickbill_pro'
       }
     });
+
+    console.log('Stripe account created:', account.id);
 
     // Save account to database
     await pool.query(`
@@ -1502,31 +1520,53 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
       VALUES ($1, $2, $3)
     `, [user.id, account.id, 'pending']);
 
+    console.log('Connect account saved to database');
+
     res.json({ 
       accountId: account.id,
       message: 'Connect account created successfully' 
     });
 
   } catch (error) {
-    console.error('Create Connect account error:', error);
-    res.status(500).json({ error: 'Failed to create Connect account' });
+    console.error('Create Connect account error:', {
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      type: error.type
+    });
+    
+    // Provide more specific error messages
+    if (error.type === 'StripeInvalidRequestError') {
+      return res.status(400).json({ error: `Stripe error: ${error.message}` });
+    }
+    
+    if (error.code === '23505') { // PostgreSQL unique constraint violation
+      return res.status(409).json({ error: 'Account already exists for this user' });
+    }
+    
+    res.status(500).json({ 
+      error: 'Failed to create Connect account',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
 // Create account link for Express onboarding
 app.post('/api/connect/create-account-link', authenticateToken, async (req, res) => {
   try {
-    const { accountId } = req.body;
+    const { accountId, embedded = false } = req.body;
 
     if (!accountId) {
       return res.status(400).json({ error: 'Account ID is required' });
     }
 
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    
     // Create account link for onboarding
     const accountLink = await stripe.accountLinks.create({
       account: accountId,
-      refresh_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payout-setup?refresh=true`,
-      return_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payout-setup?success=true`,
+      refresh_url: `${baseUrl}/invoices?stripe_refresh=true`,
+      return_url: `${baseUrl}/invoices?stripe_success=true`,
       type: 'account_onboarding',
     });
 
@@ -1535,6 +1575,34 @@ app.post('/api/connect/create-account-link', authenticateToken, async (req, res)
   } catch (error) {
     console.error('Create account link error:', error);
     res.status(500).json({ error: 'Failed to create account link' });
+  }
+});
+
+// Create embedded onboarding session (keeps users on site)
+app.post('/api/connect/create-embedded-onboarding', authenticateToken, async (req, res) => {
+  try {
+    const { accountId } = req.body;
+
+    if (!accountId) {
+      return res.status(400).json({ error: 'Account ID is required' });
+    }
+
+    // Create account session for embedded onboarding
+    const accountSession = await stripe.accountSessions.create({
+      account: accountId,
+      components: {
+        account_onboarding: { enabled: true },
+      },
+    });
+
+    res.json({ 
+      clientSecret: accountSession.client_secret,
+      accountId: accountId
+    });
+
+  } catch (error) {
+    console.error('Create embedded onboarding error:', error);
+    res.status(500).json({ error: 'Failed to create embedded onboarding session' });
   }
 });
 

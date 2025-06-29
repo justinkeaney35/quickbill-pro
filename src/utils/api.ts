@@ -195,6 +195,11 @@ export const connectAPI = {
     return response.data;
   },
 
+  createEmbeddedOnboarding: async (accountId: string) => {
+    const response = await api.post('/connect/create-embedded-onboarding', { accountId });
+    return response.data;
+  },
+
   getAccountStatus: async () => {
     const response = await api.get('/connect/account-status');
     return response.data;
