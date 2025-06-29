@@ -366,6 +366,17 @@ const initDatabase = async () => {
       )
     `);
 
+    // Add business_info column if it doesn't exist
+    try {
+      await pool.query(`
+        ALTER TABLE connect_accounts 
+        ADD COLUMN IF NOT EXISTS business_info JSONB
+      `);
+      console.log('Added business_info column to connect_accounts table');
+    } catch (alterError) {
+      console.log('business_info column already exists or error adding it:', alterError.message);
+    }
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS payouts (
         id SERIAL PRIMARY KEY,
@@ -1641,80 +1652,52 @@ app.post('/api/connect/update-business-info', authenticateToken, async (req, res
     const { accountId, businessInfo } = req.body;
     
     console.log('Updating business info for account:', accountId);
-    console.log('Business info received:', businessInfo);
+    console.log('Business info received:', JSON.stringify(businessInfo, null, 2));
     
     if (!accountId) {
       return res.status(400).json({ error: 'Account ID is required' });
     }
 
-    // Build update data step by step to avoid Stripe API issues
-    const updateData = {};
-    
-    // Set business type if provided
-    if (businessInfo.businessType) {
-      updateData.business_type = businessInfo.businessType;
-    }
-    
-    // For individual accounts, update individual info
-    if (businessInfo.businessType === 'individual' && businessInfo.firstName && businessInfo.lastName) {
-      updateData.individual = {
-        first_name: businessInfo.firstName,
-        last_name: businessInfo.lastName
-      };
-      
-      // Only add email if it's provided and valid
-      if (businessInfo.email && businessInfo.email.includes('@')) {
-        updateData.individual.email = businessInfo.email;
-      }
-      
-      // Only add phone if provided
-      if (businessInfo.phone && businessInfo.phone.length >= 10) {
-        updateData.individual.phone = businessInfo.phone;
-      }
-      
-      // Only add address if all required fields are present
-      if (businessInfo.address && businessInfo.address.line1 && businessInfo.address.city && 
-          businessInfo.address.state && businessInfo.address.postal_code) {
-        updateData.individual.address = {
-          line1: businessInfo.address.line1,
-          city: businessInfo.address.city,
-          state: businessInfo.address.state,
-          postal_code: businessInfo.address.postal_code,
-          country: 'US'
-        };
-        
-        if (businessInfo.address.line2) {
-          updateData.individual.address.line2 = businessInfo.address.line2;
-        }
-      }
-    }
-    
-    // For company accounts, update company info
-    if (businessInfo.businessType === 'company' && businessInfo.companyName) {
-      updateData.company = {
-        name: businessInfo.companyName
-      };
-      
-      if (businessInfo.taxId && businessInfo.taxId.length >= 9) {
-        updateData.company.tax_id = businessInfo.taxId;
-      }
-    }
+    // Get current account to check what can be updated
+    const currentAccount = await stripe.accounts.retrieve(accountId);
+    console.log('Current account status:', {
+      id: currentAccount.id,
+      business_type: currentAccount.business_type,
+      details_submitted: currentAccount.details_submitted,
+      charges_enabled: currentAccount.charges_enabled
+    });
 
-    console.log('Sending update data to Stripe:', JSON.stringify(updateData, null, 2));
+    // For new accounts that haven't submitted details yet, we can update more fields
+    if (!currentAccount.details_submitted) {
+      
+      // Only try to update if business type isn't already set
+      const updateData = {};
+      
+      if (!currentAccount.business_type && businessInfo.businessType) {
+        updateData.business_type = businessInfo.businessType;
+      }
 
-    // Only update if we have valid data
-    if (Object.keys(updateData).length === 0) {
-      return res.status(400).json({ error: 'No valid business information provided' });
+      console.log('Minimal update data:', JSON.stringify(updateData, null, 2));
+
+      if (Object.keys(updateData).length > 0) {
+        await stripe.accounts.update(accountId, updateData);
+        console.log('Business type updated successfully');
+      }
+
+      // Store the business info in our database for later use
+      await pool.query(`
+        UPDATE connect_accounts 
+        SET business_info = $1, updated_at = CURRENT_TIMESTAMP
+        WHERE stripe_account_id = $2
+      `, [JSON.stringify(businessInfo), accountId]);
+
+      console.log('Business info stored in database');
     }
-
-    const account = await stripe.accounts.update(accountId, updateData);
-    
-    console.log('Stripe account updated successfully:', account.id);
     
     res.json({ 
       success: true,
-      account_id: account.id,
-      message: 'Business information updated successfully'
+      account_id: accountId,
+      message: 'Business information saved successfully'
     });
 
   } catch (error) {
@@ -1727,7 +1710,7 @@ app.post('/api/connect/update-business-info', authenticateToken, async (req, res
     });
     
     res.status(500).json({ 
-      error: 'Failed to update business information',
+      error: 'Failed to save business information',
       details: process.env.NODE_ENV === 'development' ? error.message : 'Please contact support'
     });
   }
