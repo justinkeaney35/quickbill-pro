@@ -215,6 +215,33 @@ const initDatabase = async () => {
       )
     `);
 
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS connect_accounts (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+        stripe_account_id VARCHAR(255) UNIQUE NOT NULL,
+        account_status VARCHAR(50) DEFAULT 'pending',
+        details_submitted BOOLEAN DEFAULT false,
+        charges_enabled BOOLEAN DEFAULT false,
+        payouts_enabled BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS payouts (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        stripe_transfer_id VARCHAR(255) UNIQUE,
+        amount DECIMAL(10,2) NOT NULL,
+        currency VARCHAR(3) DEFAULT 'usd',
+        status VARCHAR(50) DEFAULT 'pending',
+        arrival_date DATE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     console.log('Database tables initialized successfully');
   } catch (error) {
     console.error('Database initialization error:', error);
@@ -1255,6 +1282,131 @@ app.post('/api/subscriptions/cancel', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Cancel subscription error:', error);
     res.status(500).json({ error: 'Failed to cancel subscription' });
+  }
+});
+
+// STRIPE CONNECT ROUTES
+
+// Create or get Connect account for user
+app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
+  try {
+    // Check if user already has a Connect account
+    const existingAccount = await pool.query(
+      'SELECT stripe_account_id FROM connect_accounts WHERE user_id = $1',
+      [req.user.userId]
+    );
+
+    if (existingAccount.rows.length > 0) {
+      return res.json({ 
+        accountId: existingAccount.rows[0].stripe_account_id,
+        message: 'Account already exists' 
+      });
+    }
+
+    // Get user details
+    const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.userId]);
+    const user = userResult.rows[0];
+
+    // Create Stripe Express account
+    const account = await stripe.accounts.create({
+      type: 'express',
+      country: 'US',
+      email: user.email,
+      capabilities: {
+        card_payments: { requested: true },
+        transfers: { requested: true },
+      },
+      business_type: 'individual', // Can be updated later
+      metadata: {
+        user_id: user.id,
+        user_email: user.email
+      }
+    });
+
+    // Save account to database
+    await pool.query(`
+      INSERT INTO connect_accounts (user_id, stripe_account_id, account_status)
+      VALUES ($1, $2, $3)
+    `, [user.id, account.id, 'pending']);
+
+    res.json({ 
+      accountId: account.id,
+      message: 'Connect account created successfully' 
+    });
+
+  } catch (error) {
+    console.error('Create Connect account error:', error);
+    res.status(500).json({ error: 'Failed to create Connect account' });
+  }
+});
+
+// Create account link for Express onboarding
+app.post('/api/connect/create-account-link', authenticateToken, async (req, res) => {
+  try {
+    const { accountId } = req.body;
+
+    if (!accountId) {
+      return res.status(400).json({ error: 'Account ID is required' });
+    }
+
+    // Create account link for onboarding
+    const accountLink = await stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payout-setup?refresh=true`,
+      return_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payout-setup?success=true`,
+      type: 'account_onboarding',
+    });
+
+    res.json({ url: accountLink.url });
+
+  } catch (error) {
+    console.error('Create account link error:', error);
+    res.status(500).json({ error: 'Failed to create account link' });
+  }
+});
+
+// Get Connect account status
+app.get('/api/connect/account-status', authenticateToken, async (req, res) => {
+  try {
+    const accountResult = await pool.query(
+      'SELECT * FROM connect_accounts WHERE user_id = $1',
+      [req.user.userId]
+    );
+
+    if (accountResult.rows.length === 0) {
+      return res.json({ status: 'not_created' });
+    }
+
+    const dbAccount = accountResult.rows[0];
+    
+    // Get latest status from Stripe
+    const stripeAccount = await stripe.accounts.retrieve(dbAccount.stripe_account_id);
+
+    // Update database with latest status
+    await pool.query(`
+      UPDATE connect_accounts 
+      SET account_status = $1, details_submitted = $2, charges_enabled = $3, payouts_enabled = $4, updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = $5
+    `, [
+      stripeAccount.details_submitted ? 'active' : 'pending',
+      stripeAccount.details_submitted,
+      stripeAccount.charges_enabled,
+      stripeAccount.payouts_enabled,
+      req.user.userId
+    ]);
+
+    res.json({
+      status: stripeAccount.details_submitted ? 'active' : 'pending',
+      accountId: dbAccount.stripe_account_id,
+      details_submitted: stripeAccount.details_submitted,
+      charges_enabled: stripeAccount.charges_enabled,
+      payouts_enabled: stripeAccount.payouts_enabled,
+      requirements: stripeAccount.requirements
+    });
+
+  } catch (error) {
+    console.error('Get account status error:', error);
+    res.status(500).json({ error: 'Failed to get account status' });
   }
 });
 

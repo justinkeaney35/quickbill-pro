@@ -1424,6 +1424,148 @@ body {
   border-bottom-color: #4f46e5;
 }
 
+/* Payout Setup Styles */
+.payout-status {
+  margin: 1.5rem 0;
+}
+
+.payout-not-setup, .payout-pending, .payout-active {
+  background: white;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 2rem;
+  text-align: center;
+}
+
+.payout-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.payout-not-setup h3, .payout-pending h3, .payout-active h3 {
+  color: #1f2937;
+  margin: 0 0 0.5rem 0;
+  font-size: 1.25rem;
+}
+
+.payout-not-setup p, .payout-pending p, .payout-active p {
+  color: #6b7280;
+  margin: 0 0 1.5rem 0;
+  line-height: 1.6;
+}
+
+.payout-benefits {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+  text-align: left;
+  max-width: 300px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.benefit-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.benefit-check {
+  color: #10b981;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.setup-payouts-btn, .continue-setup-btn {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: white;
+  border: none;
+  padding: 1rem 2rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 20px rgba(79, 70, 229, 0.3);
+}
+
+.setup-payouts-btn:hover, .continue-setup-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 25px rgba(79, 70, 229, 0.4);
+}
+
+.setup-payouts-btn:disabled, .continue-setup-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.payout-details {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  text-align: left;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.status-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.status-badge.active {
+  background: #d1fae5;
+  color: #059669;
+}
+
+.status-enabled {
+  color: #059669;
+  font-weight: 600;
+}
+
+.status-disabled {
+  color: #f59e0b;
+  font-weight: 600;
+}
+
+.payout-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 2rem;
+}
+
+.payment-info {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-top: 1rem;
+}
+
+.info-item {
+  color: #374151;
+  margin: 0.75rem 0;
+  line-height: 1.6;
+}
+
+.info-item strong {
+  color: #1f2937;
+}
+
 .form-field {
   display: flex;
   flex-direction: column;

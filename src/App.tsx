@@ -3,7 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-ro
 import { Zap, FileText, Users, Settings, CreditCard, PlusCircle, Download, Send, Eye, Mail, Lock, User, Building, X } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, EmbeddedCheckout as StripeEmbeddedCheckout, EmbeddedCheckoutProvider } from '@stripe/react-stripe-js';
-import { authAPI, subscriptionsAPI, invoicesAPI, clientsAPI } from './utils/api';
+import { authAPI, subscriptionsAPI, invoicesAPI, clientsAPI, connectAPI } from './utils/api';
 import './App.css';
 
 // Initialize Stripe
@@ -922,10 +922,58 @@ function SettingsTab({
     company: user.company
   });
 
+  const [payoutStatus, setPayoutStatus] = useState<{
+    status: string;
+    accountId?: string;
+    details_submitted?: boolean;
+    charges_enabled?: boolean;
+    payouts_enabled?: boolean;
+  } | null>(null);
+
+  const [payoutLoading, setPayoutLoading] = useState(false);
+
+  // Load payout status on component mount
+  useEffect(() => {
+    const loadPayoutStatus = async () => {
+      try {
+        const status = await connectAPI.getAccountStatus();
+        setPayoutStatus(status);
+      } catch (error) {
+        console.error('Failed to load payout status:', error);
+      }
+    };
+    loadPayoutStatus();
+  }, []);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (user) {
       setUser({...user, ...formData});
+    }
+  };
+
+  const handleSetupPayouts = async () => {
+    setPayoutLoading(true);
+    try {
+      let accountId = payoutStatus?.accountId;
+      
+      // Create account if it doesn't exist
+      if (!accountId) {
+        const createResult = await connectAPI.createAccount();
+        accountId = createResult.accountId;
+      }
+
+      // Create account link for onboarding
+      const linkResult = await connectAPI.createAccountLink(accountId);
+      
+      // Redirect to Stripe onboarding
+      window.location.href = linkResult.url;
+      
+    } catch (error) {
+      console.error('Failed to setup payouts:', error);
+      alert('Failed to setup payouts. Please try again.');
+    } finally {
+      setPayoutLoading(false);
     }
   };
 
@@ -970,17 +1018,103 @@ function SettingsTab({
       </div>
 
       <div className="settings-section">
-        <h2>Payment Integration</h2>
-        <div className="integration-status">
-          <div className="integration-item">
-            <span>Stripe</span>
-            <span className="status disconnected">Not Connected</span>
-            <button className="connect-btn">Connect</button>
+        <h2>Payout Setup</h2>
+        <p>Configure where you want to receive payments from your invoices.</p>
+        
+        <div className="payout-status">
+          {payoutStatus ? (
+            <>
+              {payoutStatus.status === 'not_created' ? (
+                <div className="payout-not-setup">
+                  <div className="payout-icon">🏦</div>
+                  <h3>Set up your bank account</h3>
+                  <p>Connect your bank account to receive payments from your invoices. We'll transfer your earnings weekly.</p>
+                  
+                  <div className="payout-benefits">
+                    <div className="benefit-item">
+                      <span className="benefit-check">✓</span>
+                      <span>Automatic weekly payouts</span>
+                    </div>
+                    <div className="benefit-item">
+                      <span className="benefit-check">✓</span>
+                      <span>Secure bank-grade encryption</span>
+                    </div>
+                    <div className="benefit-item">
+                      <span className="benefit-check">✓</span>
+                      <span>No setup fees</span>
+                    </div>
+                  </div>
+
+                  <button 
+                    className="setup-payouts-btn"
+                    onClick={handleSetupPayouts}
+                    disabled={payoutLoading}
+                  >
+                    {payoutLoading ? 'Setting up...' : 'Setup Bank Account'}
+                  </button>
+                </div>
+              ) : payoutStatus.status === 'pending' ? (
+                <div className="payout-pending">
+                  <div className="payout-icon">⏳</div>
+                  <h3>Bank account setup in progress</h3>
+                  <p>Complete your bank account verification to start receiving payouts.</p>
+                  
+                  <button 
+                    className="continue-setup-btn"
+                    onClick={handleSetupPayouts}
+                    disabled={payoutLoading}
+                  >
+                    {payoutLoading ? 'Loading...' : 'Continue Setup'}
+                  </button>
+                </div>
+              ) : (
+                <div className="payout-active">
+                  <div className="payout-icon">✅</div>
+                  <h3>Bank account connected</h3>
+                  <p>Your bank account is set up and ready to receive payouts.</p>
+                  
+                  <div className="payout-details">
+                    <div className="detail-row">
+                      <span>Status:</span>
+                      <span className="status-badge active">Active</span>
+                    </div>
+                    <div className="detail-row">
+                      <span>Payouts:</span>
+                      <span className={payoutStatus.payouts_enabled ? 'status-enabled' : 'status-disabled'}>
+                        {payoutStatus.payouts_enabled ? 'Enabled' : 'Pending'}
+                      </span>
+                    </div>
+                    <div className="detail-row">
+                      <span>Payments:</span>
+                      <span className={payoutStatus.charges_enabled ? 'status-enabled' : 'status-disabled'}>
+                        {payoutStatus.charges_enabled ? 'Enabled' : 'Pending'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="payout-loading">
+              <div className="loading-spinner"></div>
+              <p>Loading payout status...</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h2>Payment Processing</h2>
+        <p>QuickBill Pro handles all payment processing for your invoices.</p>
+        <div className="payment-info">
+          <div className="info-item">
+            <strong>Processing Fee:</strong> 3% per transaction
           </div>
-          <div className="integration-item">
-            <span>PayPal</span>
-            <span className="status disconnected">Not Connected</span>
-            <button className="connect-btn">Connect</button>
+          <div className="info-item">
+            <strong>Payout Schedule:</strong> Weekly (Fridays)
+          </div>
+          <div className="info-item">
+            <strong>Supported Methods:</strong> All major credit cards
           </div>
         </div>
       </div>

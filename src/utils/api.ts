@@ -173,6 +173,24 @@ export const paymentsAPI = {
   },
 };
 
+// Connect API (for payouts)
+export const connectAPI = {
+  createAccount: async () => {
+    const response = await api.post('/connect/create-account');
+    return response.data;
+  },
+
+  createAccountLink: async (accountId: string) => {
+    const response = await api.post('/connect/create-account-link', { accountId });
+    return response.data;
+  },
+
+  getAccountStatus: async () => {
+    const response = await api.get('/connect/account-status');
+    return response.data;
+  },
+};
+
 // Health check
 export const healthCheck = async () => {
   const response = await api.get('/health');
