@@ -115,6 +115,118 @@ const setupEmailTransporter = async () => {
 // Initialize email on startup
 setupEmailTransporter();
 
+// Email template function
+function generateInvoiceHTML(invoice, items, paymentLink) {
+  const itemsHTML = items.map(item => `
+    <tr>
+      <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;">${item.description}</td>
+      <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: center;">${item.quantity}</td>
+      <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;">$${parseFloat(item.rate).toFixed(2)}</td>
+      <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right;">$${parseFloat(item.amount).toFixed(2)}</td>
+    </tr>
+  `).join('');
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>Invoice #${invoice.invoice_number}</title>
+    </head>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #374151; background-color: #f9fafb; margin: 0; padding: 20px;">
+      <div style="max-width: 800px; margin: 0 auto; background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); overflow: hidden;">
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%); color: white; padding: 40px 40px 30px;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+              <h1 style="margin: 0; font-size: 28px; font-weight: 700;">Invoice</h1>
+              <p style="margin: 8px 0 0; font-size: 18px; opacity: 0.9;">#${invoice.invoice_number}</p>
+            </div>
+            <div style="text-align: right;">
+              <h2 style="margin: 0; font-size: 24px; font-weight: 600;">${invoice.user_company || invoice.user_name}</h2>
+              <p style="margin: 8px 0 0; opacity: 0.9;">Powered by QuickBill Pro</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Invoice Details -->
+        <div style="padding: 40px;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 40px;">
+            <div>
+              <h3 style="margin: 0 0 16px; color: #1f2937; font-size: 18px;">Bill To:</h3>
+              <div style="color: #6b7280;">
+                <p style="margin: 0; font-weight: 600; color: #1f2937; font-size: 16px;">${invoice.client_name}</p>
+                <p style="margin: 4px 0 0;">${invoice.client_email}</p>
+                ${invoice.client_address ? `<p style="margin: 4px 0 0;">${invoice.client_address.replace(/\n/g, '<br>')}</p>` : ''}
+              </div>
+            </div>
+            <div>
+              <h3 style="margin: 0 0 16px; color: #1f2937; font-size: 18px;">Invoice Details:</h3>
+              <div style="color: #6b7280;">
+                <p style="margin: 0;"><strong>Issue Date:</strong> ${new Date(invoice.date).toLocaleDateString()}</p>
+                <p style="margin: 4px 0 0;"><strong>Due Date:</strong> ${new Date(invoice.due_date).toLocaleDateString()}</p>
+                <p style="margin: 4px 0 0;"><strong>Status:</strong> <span style="color: ${invoice.status === 'paid' ? '#10b981' : '#f59e0b'}; font-weight: 600; text-transform: capitalize;">${invoice.status}</span></p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Items Table -->
+          <table style="width: 100%; border-collapse: collapse; margin: 40px 0; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
+            <thead>
+              <tr style="background: #f9fafb;">
+                <th style="padding: 16px 12px; text-align: left; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb;">Description</th>
+                <th style="padding: 16px 12px; text-align: center; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb;">Qty</th>
+                <th style="padding: 16px 12px; text-align: right; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb;">Rate</th>
+                <th style="padding: 16px 12px; text-align: right; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemsHTML}
+            </tbody>
+            <tfoot>
+              <tr style="background: #f9fafb;">
+                <td colspan="3" style="padding: 16px 12px; text-align: right; font-weight: 600; color: #1f2937; border-top: 2px solid #e5e7eb;">Total:</td>
+                <td style="padding: 16px 12px; text-align: right; font-weight: 700; color: #1f2937; font-size: 18px; border-top: 2px solid #e5e7eb;">$${parseFloat(invoice.total).toFixed(2)}</td>
+              </tr>
+            </tfoot>
+          </table>
+
+          ${invoice.notes ? `
+          <div style="margin: 40px 0;">
+            <h3 style="margin: 0 0 16px; color: #1f2937; font-size: 18px;">Notes:</h3>
+            <div style="background: #f9fafb; padding: 20px; border-radius: 8px; border-left: 4px solid #3b82f6;">
+              <p style="margin: 0; color: #6b7280;">${invoice.notes.replace(/\n/g, '<br>')}</p>
+            </div>
+          </div>
+          ` : ''}
+
+          ${paymentLink ? `
+          <!-- Payment Button -->
+          <div style="text-align: center; margin: 40px 0;">
+            <div style="background: #f0f9ff; padding: 30px; border-radius: 12px; border: 1px solid #e0f2fe;">
+              <h3 style="margin: 0 0 16px; color: #1e40af; font-size: 20px;">Ready to Pay?</h3>
+              <p style="margin: 0 0 24px; color: #6b7280;">Click the button below to pay this invoice securely with your credit card or bank account.</p>
+              <a href="${paymentLink}" style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%); color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);">
+                Pay Invoice - $${parseFloat(invoice.total).toFixed(2)}
+              </a>
+              <p style="margin: 16px 0 0; font-size: 12px; color: #9ca3af;">Powered by Stripe - Your payment information is secure</p>
+            </div>
+          </div>
+          ` : ''}
+
+          <!-- Footer -->
+          <div style="margin-top: 40px; padding-top: 40px; border-top: 1px solid #e5e7eb; text-align: center; color: #9ca3af; font-size: 14px;">
+            <p style="margin: 0;">Thank you for your business!</p>
+            <p style="margin: 8px 0 0;">If you have any questions, please contact ${invoice.user_email}</p>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
 // JWT middleware for authentication
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -191,6 +303,8 @@ const initDatabase = async () => {
         tax_amount DECIMAL(10,2) DEFAULT 0,
         total DECIMAL(10,2) NOT NULL,
         notes TEXT,
+        payment_link TEXT,
+        sent_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
@@ -1358,7 +1472,7 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
     const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.userId]);
     const user = userResult.rows[0];
 
-    // Create Stripe Express account
+    // Create Stripe Express account for direct payments
     const account = await stripe.accounts.create({
       type: 'express',
       country: 'US',
@@ -1367,10 +1481,18 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
         card_payments: { requested: true },
         transfers: { requested: true },
       },
-      business_type: 'individual', // Can be updated later
+      business_type: 'individual',
+      settings: {
+        payouts: {
+          schedule: {
+            interval: 'daily' // Users get paid directly and quickly
+          }
+        }
+      },
       metadata: {
         user_id: user.id,
-        user_email: user.email
+        user_email: user.email,
+        platform: 'quickbill_pro'
       }
     });
 
@@ -1458,6 +1580,218 @@ app.get('/api/connect/account-status', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Get account status error:', error);
     res.status(500).json({ error: 'Failed to get account status' });
+  }
+});
+
+// INVOICE PAYMENT PROCESSING ROUTES
+
+// Create payment link for invoice (requires Stripe Connect account)
+app.post('/api/invoices/:id/create-payment-link', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get invoice details
+    const invoiceResult = await pool.query(`
+      SELECT i.*, u.id as user_id 
+      FROM invoices i 
+      JOIN users u ON i.user_id = u.id 
+      WHERE i.id = $1 AND i.user_id = $2
+    `, [id, req.user.userId]);
+
+    if (invoiceResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    const invoice = invoiceResult.rows[0];
+
+    // Check if user has Stripe Connect account
+    const connectResult = await pool.query(
+      'SELECT stripe_account_id, account_status FROM connect_accounts WHERE user_id = $1',
+      [req.user.userId]
+    );
+
+    if (connectResult.rows.length === 0 || connectResult.rows[0].account_status !== 'active') {
+      return res.status(400).json({ 
+        error: 'Stripe account required',
+        message: 'Please complete your Stripe setup to accept payments'
+      });
+    }
+
+    const stripeAccountId = connectResult.rows[0].stripe_account_id;
+
+    // Create payment link through Stripe Connect
+    const paymentLink = await stripe.paymentLinks.create({
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: `Invoice #${invoice.invoice_number}`,
+              description: `Payment for invoice from ${invoice.user_name || 'QuickBill Pro user'}`,
+            },
+            unit_amount: Math.round(invoice.total * 100), // Convert to cents
+          },
+          quantity: 1,
+        },
+      ],
+      metadata: {
+        invoice_id: invoice.id,
+        user_id: req.user.userId,
+        platform: 'quickbill_pro'
+      },
+      after_completion: {
+        type: 'redirect',
+        redirect: {
+          url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/invoice-paid?invoice=${invoice.id}`
+        }
+      }
+    }, {
+      stripeAccount: stripeAccountId
+    });
+
+    // Update invoice with payment link
+    await pool.query(
+      'UPDATE invoices SET payment_link = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [paymentLink.url, invoice.id]
+    );
+
+    res.json({
+      payment_link: paymentLink.url,
+      public_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/pay/${invoice.id}`,
+      message: 'Payment link created successfully'
+    });
+
+  } catch (error) {
+    console.error('Create payment link error:', error);
+    res.status(500).json({ error: 'Failed to create payment link' });
+  }
+});
+
+// Send invoice via email
+app.post('/api/invoices/:id/send', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { message, send_copy } = req.body;
+
+    // Get invoice with all details
+    const invoiceResult = await pool.query(`
+      SELECT 
+        i.*,
+        c.name as client_name,
+        c.email as client_email,
+        u.name as user_name,
+        u.email as user_email,
+        u.company as user_company
+      FROM invoices i
+      JOIN clients c ON i.client_id = c.id
+      JOIN users u ON i.user_id = u.id
+      WHERE i.id = $1 AND i.user_id = $2
+    `, [id, req.user.userId]);
+
+    if (invoiceResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    const invoice = invoiceResult.rows[0];
+
+    // Get invoice items
+    const itemsResult = await pool.query(
+      'SELECT * FROM invoice_items WHERE invoice_id = $1 ORDER BY id',
+      [id]
+    );
+
+    const items = itemsResult.rows;
+
+    // Create payment link if it doesn't exist
+    let paymentLink = invoice.payment_link;
+    if (!paymentLink) {
+      // Auto-create payment link
+      const connectResult = await pool.query(
+        'SELECT stripe_account_id, account_status FROM connect_accounts WHERE user_id = $1',
+        [req.user.userId]
+      );
+
+      if (connectResult.rows.length > 0 && connectResult.rows[0].account_status === 'active') {
+        const stripeAccountId = connectResult.rows[0].stripe_account_id;
+
+        const paymentLinkObj = await stripe.paymentLinks.create({
+          line_items: [
+            {
+              price_data: {
+                currency: 'usd',
+                product_data: {
+                  name: `Invoice #${invoice.invoice_number}`,
+                  description: `Payment for invoice from ${invoice.user_name || invoice.user_company}`,
+                },
+                unit_amount: Math.round(invoice.total * 100),
+              },
+              quantity: 1,
+            },
+          ],
+          metadata: {
+            invoice_id: invoice.id,
+            user_id: req.user.userId,
+            platform: 'quickbill_pro'
+          },
+          after_completion: {
+            type: 'redirect',
+            redirect: {
+              url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/invoice-paid?invoice=${invoice.id}`
+            }
+          }
+        }, {
+          stripeAccount: stripeAccountId
+        });
+
+        paymentLink = paymentLinkObj.url;
+
+        // Update invoice with payment link
+        await pool.query(
+          'UPDATE invoices SET payment_link = $1 WHERE id = $2',
+          [paymentLink, invoice.id]
+        );
+      }
+    }
+
+    // Generate invoice HTML
+    const invoiceHTML = generateInvoiceHTML(invoice, items, paymentLink);
+
+    // Send email to client
+    const mailOptions = {
+      from: process.env.FROM_EMAIL || 'noreply@quickbillpro.com',
+      to: invoice.client_email,
+      subject: `Invoice #${invoice.invoice_number} from ${invoice.user_company || invoice.user_name}`,
+      html: invoiceHTML,
+      replyTo: invoice.user_email
+    };
+
+    await transporter.sendMail(mailOptions);
+
+    // Send copy to user if requested
+    if (send_copy) {
+      const copyMailOptions = {
+        ...mailOptions,
+        to: invoice.user_email,
+        subject: `Copy: Invoice #${invoice.invoice_number} sent to ${invoice.client_name}`
+      };
+      await transporter.sendMail(copyMailOptions);
+    }
+
+    // Update invoice status to sent
+    await pool.query(
+      'UPDATE invoices SET status = $1, sent_at = CURRENT_TIMESTAMP WHERE id = $2',
+      ['sent', invoice.id]
+    );
+
+    res.json({ 
+      message: 'Invoice sent successfully',
+      sent_to: invoice.client_email,
+      copy_sent: send_copy
+    });
+
+  } catch (error) {
+    console.error('Send invoice error:', error);
+    res.status(500).json({ error: 'Failed to send invoice' });
   }
 });
 

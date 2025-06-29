@@ -24,6 +24,8 @@ interface Invoice {
   status: 'draft' | 'sent' | 'paid' | 'overdue';
   total: number;
   createdAt: string;
+  paymentLink?: string;
+  sentAt?: string;
 }
 
 interface InvoiceItem {

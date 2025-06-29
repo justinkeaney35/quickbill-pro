@@ -118,8 +118,18 @@ export const invoicesAPI = {
     return response.data;
   },
 
-  sendEmail: async (id: string) => {
-    const response = await api.post(`/invoices/${id}/send`);
+  sendEmail: async (id: string, options?: { message?: string; send_copy?: boolean }) => {
+    const response = await api.post(`/invoices/${id}/send`, options);
+    return response.data;
+  },
+
+  createPaymentLink: async (id: string) => {
+    const response = await api.post(`/invoices/${id}/create-payment-link`);
+    return response.data;
+  },
+
+  getPublic: async (id: string) => {
+    const response = await api.get(`/public/invoice/${id}`);
     return response.data;
   },
 };
