@@ -1408,6 +1408,58 @@ app.post('/api/subscriptions/cancel', authenticateToken, async (req, res) => {
 
 // STRIPE CONNECT ROUTES
 
+// Debug endpoint to check user data and configuration
+app.get('/api/connect/debug', authenticateToken, async (req, res) => {
+  try {
+    console.log('Debug Connect for user:', req.user.userId);
+    
+    // Get user details
+    const userResult = await pool.query('SELECT id, name, email, company FROM users WHERE id = $1', [req.user.userId]);
+    
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const user = userResult.rows[0];
+    
+    // Check existing Connect account
+    const existingAccount = await pool.query(
+      'SELECT stripe_account_id, account_status FROM connect_accounts WHERE user_id = $1',
+      [req.user.userId]
+    );
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const isValidEmail = emailRegex.test(user.email);
+    
+    const debugInfo = {
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        company: user.company,
+        emailValid: isValidEmail
+      },
+      existingAccount: existingAccount.rows.length > 0 ? existingAccount.rows[0] : null,
+      configuration: {
+        stripeConfigured: !!process.env.STRIPE_SECRET_KEY,
+        nodeEnv: process.env.NODE_ENV,
+        frontendUrl: process.env.FRONTEND_URL
+      },
+      timestamp: new Date().toISOString()
+    };
+    
+    res.json(debugInfo);
+    
+  } catch (error) {
+    console.error('Debug Connect error:', error);
+    res.status(500).json({ 
+      error: 'Debug failed', 
+      details: error.message 
+    });
+  }
+});
+
 // Create or get Connect account for user
 app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
   try {
@@ -1448,7 +1500,12 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
     }
     
     const user = userResult.rows[0];
-    console.log('Creating Stripe account for user:', user.email);
+    console.log('Creating Stripe account for user:', {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      company: user.company
+    });
 
     // Validate Stripe is properly configured
     if (!process.env.STRIPE_SECRET_KEY) {
@@ -1458,9 +1515,19 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
 
     // Validate user email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(user.email)) {
+    console.log('Validating email format:', {
+      email: user.email,
+      isValid: emailRegex.test(user.email),
+      emailType: typeof user.email,
+      emailLength: user.email ? user.email.length : 'null/undefined'
+    });
+    
+    if (!user.email || !emailRegex.test(user.email)) {
       console.error('Invalid email format:', user.email);
-      return res.status(400).json({ error: 'Invalid user email format' });
+      return res.status(400).json({ 
+        error: 'Invalid user email format',
+        details: process.env.NODE_ENV === 'development' ? `Email: ${user.email}` : undefined
+      });
     }
 
     // Check if email is already associated with a Stripe account
