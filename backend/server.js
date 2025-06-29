@@ -98,15 +98,17 @@ const setupEmailTransporter = async () => {
     }
   } catch (error) {
     console.error('Email setup error:', error);
-    // Create a dummy transporter that logs
+    console.warn('Email functionality will be limited. Please configure SMTP settings.');
+    // Create a dummy transporter that provides user feedback
     transporter = {
       sendMail: async (mailOptions) => {
-        console.log('Email would be sent:', {
+        console.log('Email not configured - would send:', {
           to: mailOptions.to,
           subject: mailOptions.subject,
           html: mailOptions.html?.substring(0, 200) + '...'
         });
-        return { messageId: 'dummy-' + Date.now() };
+        // Throw an error so the user knows emails aren't working
+        throw new Error('Email not configured. Please contact administrator to set up SMTP settings.');
       }
     };
   }
@@ -811,7 +813,24 @@ app.post('/api/invoices', authenticateToken, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const { clientId, date, dueDate, items, notes, taxRate = 0 } = req.body;
+    const { clientId, newClient, date, dueDate, items, notes, taxRate = 0 } = req.body;
+    
+    console.log('Creating invoice with data:', {
+      clientId,
+      newClient: newClient ? { ...newClient, email: newClient.email } : null,
+      itemsCount: items ? items.length : 0,
+      date,
+      dueDate
+    });
+
+    // Validate required fields
+    if (!date || !dueDate || !items || !Array.isArray(items)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ 
+        error: 'Missing required fields: date, dueDate, and items are required',
+        received: { date: !!date, dueDate: !!dueDate, items: Array.isArray(items) }
+      });
+    }
 
     // Check if user can create more invoices
     const userResult = await client.query(
@@ -819,10 +838,60 @@ app.post('/api/invoices', authenticateToken, async (req, res) => {
       [req.user.userId]
     );
     
+    if (userResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
     const user = userResult.rows[0];
     if (user.plan === 'free' && user.invoices_this_month >= user.max_invoices) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'Monthly invoice limit reached. Please upgrade your plan.' });
+    }
+
+    // Handle client creation or selection
+    let finalClientId = clientId;
+    let clientInfo = null;
+
+    if (clientId === 'new' && newClient) {
+      // Create new client
+      console.log('Creating new client:', newClient.name, newClient.email);
+      
+      if (!newClient.name || !newClient.email) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'New client must have name and email' });
+      }
+
+      const newClientResult = await client.query(`
+        INSERT INTO clients (user_id, name, email, address, phone, company)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING *
+      `, [
+        req.user.userId,
+        newClient.name.trim(),
+        newClient.email.trim(),
+        newClient.address || '',
+        newClient.phone || '',
+        newClient.company || ''
+      ]);
+      
+      finalClientId = newClientResult.rows[0].id;
+      clientInfo = newClientResult.rows[0];
+      console.log('New client created with ID:', finalClientId);
+    } else if (clientId && clientId !== 'new') {
+      // Use existing client
+      const clientResult = await client.query('SELECT * FROM clients WHERE id = $1 AND user_id = $2', [clientId, req.user.userId]);
+      
+      if (clientResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Client not found or access denied' });
+      }
+      
+      clientInfo = clientResult.rows[0];
+      console.log('Using existing client ID:', finalClientId);
+    } else {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Either clientId or newClient data must be provided' });
     }
 
     // Generate invoice number
@@ -832,31 +901,63 @@ app.post('/api/invoices', authenticateToken, async (req, res) => {
     );
     const invoiceNumber = `INV-${String(parseInt(invoiceCountResult.rows[0].count) + 1).padStart(3, '0')}`;
 
-    // Calculate totals
-    const subtotal = items.reduce((sum, item) => sum + (item.quantity * item.rate), 0);
+    // Validate and calculate totals
+    const validItems = items.filter(item => item.description && item.description.trim());
+    
+    if (validItems.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'At least one item with description is required' });
+    }
+
+    let subtotal = 0;
+    for (const item of validItems) {
+      const quantity = parseFloat(item.quantity) || 0;
+      const rate = parseFloat(item.rate) || 0;
+      
+      if (quantity <= 0 || rate < 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Invalid item quantities or rates' });
+      }
+      
+      subtotal += quantity * rate;
+    }
+
     const taxAmount = subtotal * (taxRate / 100);
     const total = subtotal + taxAmount;
+
+    console.log('Creating invoice:', {
+      invoiceNumber,
+      clientId: finalClientId,
+      subtotal,
+      total,
+      itemsCount: validItems.length
+    });
 
     // Create invoice
     const invoiceResult = await client.query(`
       INSERT INTO invoices (user_id, client_id, invoice_number, date, due_date, status, subtotal, tax_rate, tax_amount, total, notes)
       VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7, $8, $9, $10)
       RETURNING *
-    `, [req.user.userId, clientId, invoiceNumber, date, dueDate, subtotal, taxRate, taxAmount, total, notes]);
+    `, [req.user.userId, finalClientId, invoiceNumber, date, dueDate, subtotal, taxRate, taxAmount, total, notes || '']);
 
     const invoice = invoiceResult.rows[0];
+    console.log('Invoice created with ID:', invoice.id);
 
     // Create invoice items
     const invoiceItems = [];
-    for (const item of items) {
-      if (item.description.trim()) {
-        const itemResult = await client.query(
-          'INSERT INTO invoice_items (invoice_id, description, quantity, rate, amount) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-          [invoice.id, item.description, item.quantity, item.rate, item.quantity * item.rate]
-        );
-        invoiceItems.push(itemResult.rows[0]);
-      }
+    for (const item of validItems) {
+      const quantity = parseFloat(item.quantity);
+      const rate = parseFloat(item.rate);
+      const amount = quantity * rate;
+      
+      const itemResult = await client.query(
+        'INSERT INTO invoice_items (invoice_id, description, quantity, rate, amount) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+        [invoice.id, item.description.trim(), quantity, rate, amount]
+      );
+      invoiceItems.push(itemResult.rows[0]);
     }
+
+    console.log('Created', invoiceItems.length, 'invoice items');
 
     // Update user's invoice count
     await client.query(
@@ -866,22 +967,44 @@ app.post('/api/invoices', authenticateToken, async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Get client info for response
-    const clientResult = await pool.query('SELECT * FROM clients WHERE id = $1', [clientId]);
-    const clientInfo = clientResult.rows[0];
-
-    res.status(201).json({
+    const responseData = {
       ...invoice,
       items: invoiceItems,
       client_name: clientInfo.name,
       client_email: clientInfo.email,
       client_address: clientInfo.address
-    });
+    };
+
+    console.log('Invoice creation successful');
+    res.status(201).json(responseData);
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Create invoice error:', error);
-    res.status(500).json({ error: 'Server error' });
+    console.error('Create invoice error:', {
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      detail: error.detail,
+      constraint: error.constraint
+    });
+    
+    // Provide more specific error messages
+    if (error.code === '23505') { // Unique constraint violation
+      return res.status(409).json({ error: 'Duplicate invoice number or client email' });
+    }
+    
+    if (error.code === '23503') { // Foreign key constraint violation
+      return res.status(400).json({ error: 'Invalid client or user reference' });
+    }
+    
+    if (error.code === '23502') { // Not null constraint violation
+      return res.status(400).json({ error: 'Missing required field: ' + error.column });
+    }
+    
+    res.status(500).json({ 
+      error: 'Failed to create invoice',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   } finally {
     client.release();
   }
@@ -909,174 +1032,7 @@ app.patch('/api/invoices/:id/status', authenticateToken, async (req, res) => {
   }
 });
 
-// Send invoice via email
-app.post('/api/invoices/:id/send', authenticateToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Get invoice details
-    const invoiceResult = await pool.query(`
-      SELECT i.*, c.name as client_name, c.email as client_email, u.name as user_name, u.company as user_company
-      FROM invoices i
-      JOIN clients c ON i.client_id = c.id
-      JOIN users u ON i.user_id = u.id
-      WHERE i.id = $1 AND i.user_id = $2
-    `, [id, req.user.userId]);
-
-    if (invoiceResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Invoice not found' });
-    }
-
-    const invoice = invoiceResult.rows[0];
-
-    // Get invoice items
-    const itemsResult = await pool.query(
-      'SELECT * FROM invoice_items WHERE invoice_id = $1 ORDER BY id',
-      [id]
-    );
-    const items = itemsResult.rows;
-
-    // Professional invoice email template
-    const mailOptions = {
-      from: process.env.FROM_EMAIL || 'QuickBillproverify@gmail.com',
-      to: invoice.client_email,
-      subject: `Invoice ${invoice.invoice_number} from ${invoice.user_company || invoice.user_name}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #f8fafc;">
-          <div style="background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);">
-            <div style="text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #e2e8f0;">
-              <h1 style="color: #4F46E5; margin: 0; font-size: 1.875rem;">⚡ QuickBill Pro</h1>
-              <p style="color: #6B7280; margin: 5px 0 0 0; font-size: 1rem;">Professional Invoicing</p>
-            </div>
-            
-            <div style="text-align: center; margin-bottom: 30px;">
-              <h2 style="color: #1F2937; font-size: 2rem; margin: 0;">Invoice ${invoice.invoice_number}</h2>
-              <p style="color: #6B7280; margin: 10px 0 0 0;">From ${invoice.user_company || invoice.user_name}</p>
-            </div>
-
-            <div style="margin-bottom: 30px;">
-              <p style="color: #374151; font-size: 1.1rem; margin: 0 0 20px 0;">Dear ${invoice.client_name},</p>
-              <p style="color: #374151; line-height: 1.6; margin: 0 0 20px 0;">
-                Please find the details of your invoice below. Payment is due by the date specified.
-              </p>
-            </div>
-
-            <!-- Invoice Items Table -->
-            <div style="margin: 30px 0;">
-              <h3 style="color: #374151; margin: 0 0 20px 0; font-size: 1.25rem;">Invoice Details</h3>
-              <table style="width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
-                <thead style="background: #f8fafc;">
-                  <tr>
-                    <th style="padding: 12px; text-align: left; color: #374151; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Description</th>
-                    <th style="padding: 12px; text-align: center; color: #374151; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Qty</th>
-                    <th style="padding: 12px; text-align: right; color: #374151; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Rate</th>
-                    <th style="padding: 12px; text-align: right; color: #374151; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${items.map(item => `
-                    <tr style="border-bottom: 1px solid #f1f5f9;">
-                      <td style="padding: 12px; color: #374151;">${item.description}</td>
-                      <td style="padding: 12px; text-align: center; color: #6B7280;">${item.quantity}</td>
-                      <td style="padding: 12px; text-align: right; color: #6B7280;">$${parseFloat(item.rate).toFixed(2)}</td>
-                      <td style="padding: 12px; text-align: right; color: #374151; font-weight: 600;">$${parseFloat(item.amount).toFixed(2)}</td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-                <tfoot style="background: #f8fafc;">
-                  <tr>
-                    <td colspan="3" style="padding: 12px; text-align: right; color: #6B7280; font-weight: 600;">Subtotal:</td>
-                    <td style="padding: 12px; text-align: right; color: #374151; font-weight: 600;">$${parseFloat(invoice.subtotal).toFixed(2)}</td>
-                  </tr>
-                  ${invoice.tax_rate > 0 ? `
-                    <tr>
-                      <td colspan="3" style="padding: 12px; text-align: right; color: #6B7280; font-weight: 600;">Tax (${invoice.tax_rate}%):</td>
-                      <td style="padding: 12px; text-align: right; color: #374151; font-weight: 600;">$${parseFloat(invoice.tax_amount).toFixed(2)}</td>
-                    </tr>
-                  ` : ''}
-                  <tr style="border-top: 2px solid #e2e8f0;">
-                    <td colspan="3" style="padding: 15px 12px; text-align: right; color: #1F2937; font-weight: 700; font-size: 1.1rem;">Total Amount:</td>
-                    <td style="padding: 15px 12px; text-align: right; color: #4F46E5; font-weight: 700; font-size: 1.25rem;">$${parseFloat(invoice.total).toFixed(2)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-
-            <div style="background: #f8fafc; padding: 2rem; border-radius: 12px; margin: 30px 0; border: 2px solid #e2e8f0;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <span style="color: #6B7280; font-size: 1rem;">Amount Due:</span>
-                <span style="color: #4F46E5; font-size: 2rem; font-weight: 700;">$${parseFloat(invoice.total).toFixed(2)}</span>
-              </div>
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <span style="color: #6B7280;">Invoice Date:</span>
-                <span style="color: #374151; font-weight: 600;">${new Date(invoice.date).toLocaleDateString()}</span>
-              </div>
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="color: #6B7280;">Due Date:</span>
-                <span style="color: #ef4444; font-weight: 600;">${new Date(invoice.due_date).toLocaleDateString()}</span>
-              </div>
-            </div>
-
-            <div style="background: #fef3c7; padding: 1.5rem; border-radius: 8px; border-left: 4px solid #f59e0b; margin: 20px 0;">
-              <p style="color: #92400e; margin: 0; font-weight: 600;">
-                💡 Payment Instructions: Please include invoice number ${invoice.invoice_number} in your payment reference.
-              </p>
-            </div>
-
-            ${invoice.notes ? `
-              <div style="margin: 30px 0;">
-                <h3 style="color: #374151; margin: 0 0 10px 0;">Notes:</h3>
-                <p style="color: #6B7280; line-height: 1.6; margin: 0; font-style: italic;">${invoice.notes}</p>
-              </div>
-            ` : ''}
-
-            <div style="text-align: center; margin: 40px 0; padding: 20px; background: #f8fafc; border-radius: 8px;">
-              <p style="color: #374151; margin: 0 0 10px 0; font-size: 1.1rem;">Thank you for your business!</p>
-              <p style="color: #6B7280; margin: 0; line-height: 1.6;">
-                <strong>${invoice.user_name}</strong><br>
-                ${invoice.user_company ? `${invoice.user_company}<br>` : ''}
-                <span style="font-size: 0.9rem;">Powered by QuickBill Pro</span>
-              </p>
-            </div>
-
-            <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e2e8f0;">
-              <p style="color: #9CA3AF; font-size: 0.875rem; margin: 0;">
-                This invoice was generated and sent via QuickBill Pro<br>
-                Professional invoicing made simple
-              </p>
-            </div>
-          </div>
-        </div>
-      `
-    };
-
-    // Send invoice email
-    try {
-      const info = await transporter.sendMail(mailOptions);
-      console.log(`Invoice ${invoice.invoice_number} sent to ${invoice.client_email}`);
-      
-      // If using Ethereal, log the preview URL
-      if (nodemailer.getTestMessageUrl(info)) {
-        console.log('Invoice email preview URL:', nodemailer.getTestMessageUrl(info));
-      }
-      
-      // Update invoice status to sent
-      await pool.query(
-        'UPDATE invoices SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-        ['sent', id]
-      );
-
-      res.json({ message: 'Invoice sent successfully!' });
-    } catch (emailError) {
-      console.error('Invoice email sending error:', emailError);
-      res.status(500).json({ error: 'Failed to send invoice email. Please try again later.' });
-    }
-
-  } catch (error) {
-    console.error('Send invoice error:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
+// This endpoint is removed - using the more comprehensive version below around line 1956
 
 // USER ROUTES
 
@@ -1457,18 +1413,30 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
   try {
     console.log('Creating Connect account for user:', req.user.userId);
     
-    // Check if user already has a Connect account
+    // Check if user already has a Connect account (including Stripe-side check)
     const existingAccount = await pool.query(
-      'SELECT stripe_account_id FROM connect_accounts WHERE user_id = $1',
+      'SELECT stripe_account_id, account_status FROM connect_accounts WHERE user_id = $1',
       [req.user.userId]
     );
 
     if (existingAccount.rows.length > 0) {
-      console.log('Account already exists:', existingAccount.rows[0].stripe_account_id);
-      return res.json({ 
-        accountId: existingAccount.rows[0].stripe_account_id,
-        message: 'Account already exists' 
-      });
+      const accountId = existingAccount.rows[0].stripe_account_id;
+      console.log('Account already exists:', accountId);
+      
+      // Verify account still exists in Stripe
+      try {
+        const stripeAccount = await stripe.accounts.retrieve(accountId);
+        console.log('Stripe account verified:', stripeAccount.id);
+        
+        return res.json({ 
+          accountId: accountId,
+          message: 'Account already exists' 
+        });
+      } catch (stripeError) {
+        console.log('Stripe account not found, will create new one:', stripeError.message);
+        // Delete the orphaned record and continue to create new account
+        await pool.query('DELETE FROM connect_accounts WHERE user_id = $1', [req.user.userId]);
+      }
     }
 
     // Get user details
@@ -1488,8 +1456,51 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
       return res.status(500).json({ error: 'Payment processing not configured' });
     }
 
+    // Validate user email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(user.email)) {
+      console.error('Invalid email format:', user.email);
+      return res.status(400).json({ error: 'Invalid user email format' });
+    }
+
+    // Check if email is already associated with a Stripe account
+    try {
+      const existingStripeAccounts = await stripe.accounts.list({
+        limit: 10,
+        created: { gte: Math.floor(Date.now() / 1000) - (30 * 24 * 60 * 60) } // Last 30 days
+      });
+      
+      const duplicateAccount = existingStripeAccounts.data.find(acc => 
+        acc.email === user.email || 
+        (acc.metadata && acc.metadata.user_email === user.email)
+      );
+      
+      if (duplicateAccount) {
+        console.log('Found existing Stripe account for email:', user.email);
+        
+        // Save to our database if not already there
+        try {
+          await pool.query(`
+            INSERT INTO connect_accounts (user_id, stripe_account_id, account_status)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (user_id) DO UPDATE SET stripe_account_id = $2
+          `, [user.id, duplicateAccount.id, 'pending']);
+        } catch (dbError) {
+          console.log('Database insert failed, but account exists:', dbError.message);
+        }
+        
+        return res.json({
+          accountId: duplicateAccount.id,
+          message: 'Using existing Stripe account'
+        });
+      }
+    } catch (listError) {
+      console.log('Could not check existing accounts:', listError.message);
+      // Continue with account creation
+    }
+
     // Create Stripe Express account for direct payments
-    const account = await stripe.accounts.create({
+    const accountData = {
       type: 'express',
       country: 'US',
       email: user.email,
@@ -1497,27 +1508,47 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
         card_payments: { requested: true },
         transfers: { requested: true },
       },
-      business_type: 'individual',
-      settings: {
-        payouts: {
-          schedule: {
-            interval: 'daily' // Users get paid directly and quickly
-          }
-        }
-      },
       metadata: {
         user_id: user.id.toString(),
         user_email: user.email,
-        platform: 'quickbill_pro'
+        platform: 'quickbill_pro',
+        created_at: new Date().toISOString()
       }
+    };
+
+    // Only add business_type and settings if not causing issues
+    try {
+      accountData.business_type = 'individual';
+      accountData.settings = {
+        payouts: {
+          schedule: {
+            interval: 'daily'
+          }
+        }
+      };
+    } catch (settingsError) {
+      console.log('Using minimal account settings');
+    }
+
+    console.log('Creating Stripe account with data:', {
+      type: accountData.type,
+      country: accountData.country,
+      email: accountData.email,
+      capabilities: accountData.capabilities
     });
 
-    console.log('Stripe account created:', account.id);
+    const account = await stripe.accounts.create(accountData);
+
+    console.log('Stripe account created successfully:', account.id);
 
     // Save account to database
     await pool.query(`
       INSERT INTO connect_accounts (user_id, stripe_account_id, account_status)
       VALUES ($1, $2, $3)
+      ON CONFLICT (user_id) DO UPDATE SET 
+        stripe_account_id = $2, 
+        account_status = $3,
+        updated_at = CURRENT_TIMESTAMP
     `, [user.id, account.id, 'pending']);
 
     console.log('Connect account saved to database');
@@ -1532,12 +1563,33 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
       message: error.message,
       stack: error.stack,
       code: error.code,
-      type: error.type
+      type: error.type,
+      decline_code: error.decline_code,
+      param: error.param
     });
     
-    // Provide more specific error messages
+    // Provide more specific error messages based on Stripe error types
     if (error.type === 'StripeInvalidRequestError') {
-      return res.status(400).json({ error: `Stripe error: ${error.message}` });
+      let errorMessage = 'Invalid request to payment processor';
+      
+      if (error.message.includes('email')) {
+        errorMessage = 'Email address is invalid or already in use';
+      } else if (error.message.includes('country')) {
+        errorMessage = 'Country not supported for payment processing';
+      } else if (error.message.includes('capabilities')) {
+        errorMessage = 'Payment capabilities not available';
+      } else if (error.message.includes('business_type')) {
+        errorMessage = 'Business type configuration error';
+      }
+      
+      return res.status(400).json({ 
+        error: errorMessage,
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+    
+    if (error.type === 'StripeRateLimitError') {
+      return res.status(429).json({ error: 'Too many requests. Please try again in a moment.' });
     }
     
     if (error.code === '23505') { // PostgreSQL unique constraint violation
@@ -1545,8 +1597,8 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
     }
     
     res.status(500).json({ 
-      error: 'Failed to create Connect account',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: 'Failed to create payment account',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Please contact support if this persists'
     });
   }
 });
