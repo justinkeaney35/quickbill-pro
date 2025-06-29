@@ -19,17 +19,24 @@ const pool = new Pool({
 });
 
 // Plaid client configuration
-const plaidConfiguration = new Configuration({
-  basePath: PlaidEnvironments[process.env.PLAID_ENVIRONMENT || 'sandbox'],
-  baseOptions: {
-    headers: {
-      'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
-      'PLAID-SECRET': process.env.PLAID_SECRET,
-    },
-  },
-});
+let plaidClient = null;
 
-const plaidClient = new PlaidApi(plaidConfiguration);
+if (process.env.PLAID_CLIENT_ID && process.env.PLAID_SECRET) {
+  const plaidConfiguration = new Configuration({
+    basePath: PlaidEnvironments[process.env.PLAID_ENVIRONMENT || 'sandbox'],
+    baseOptions: {
+      headers: {
+        'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
+        'PLAID-SECRET': process.env.PLAID_SECRET,
+      },
+    },
+  });
+
+  plaidClient = new PlaidApi(plaidConfiguration);
+  console.log('Plaid client initialized successfully');
+} else {
+  console.warn('Plaid credentials not found. Plaid features will be disabled.');
+}
 
 // Middleware
 app.use(helmet());
@@ -1665,11 +1672,36 @@ app.post('/api/admin/process-payouts', async (req, res) => {
 
 // PLAID ROUTES FOR BANK ACCOUNT LINKING
 
+// Check Plaid configuration status
+app.get('/api/plaid/status', (req, res) => {
+  const isConfigured = !!(plaidClient && process.env.PLAID_CLIENT_ID && process.env.PLAID_SECRET);
+  
+  res.json({
+    configured: isConfigured,
+    environment: process.env.PLAID_ENVIRONMENT || 'sandbox',
+    message: isConfigured 
+      ? 'Plaid is properly configured' 
+      : 'Plaid credentials not found. Please set PLAID_CLIENT_ID and PLAID_SECRET environment variables.'
+  });
+});
+
 // Create Plaid Link token
 app.post('/api/plaid/create-link-token', authenticateToken, async (req, res) => {
   try {
+    if (!plaidClient) {
+      console.error('Plaid client not initialized');
+      return res.status(500).json({ 
+        error: 'Plaid integration not configured',
+        message: 'Bank account linking is temporarily unavailable. Please contact support.'
+      });
+    }
+
     const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.userId]);
     const user = userResult.rows[0];
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
 
     const configs = {
       user: {
@@ -1687,16 +1719,19 @@ app.post('/api/plaid/create-link-token', authenticateToken, async (req, res) => 
       },
     };
 
-    const createTokenRequest = {
-      ...configs,
-    };
-
-    const response = await plaidClient.linkTokenCreate(createTokenRequest);
+    console.log('Creating Plaid link token for user:', user.id);
+    const response = await plaidClient.linkTokenCreate(configs);
+    console.log('Plaid link token created successfully');
+    
     res.json({ link_token: response.data.link_token });
 
   } catch (error) {
     console.error('Create link token error:', error);
-    res.status(500).json({ error: 'Failed to create link token' });
+    console.error('Error details:', error.response?.data || error.message);
+    res.status(500).json({ 
+      error: 'Failed to create link token',
+      message: 'Unable to initialize bank account connection. Please try again later.'
+    });
   }
 });
 

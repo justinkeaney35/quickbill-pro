@@ -157,14 +157,22 @@ function PlaidLinkComponent({
 }) {
   const [linkToken, setLinkToken] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>('');
 
   useEffect(() => {
     const createLinkToken = async () => {
       try {
+        console.log('Attempting to create Plaid link token...');
         const response = await plaidAPI.createLinkToken();
+        console.log('Link token received:', response.link_token ? 'Success' : 'Failed');
         setLinkToken(response.link_token);
-      } catch (error) {
+        setError('');
+      } catch (error: any) {
         console.error('Failed to create Plaid link token:', error);
+        const errorMessage = error.response?.data?.message || 
+                           error.response?.data?.error || 
+                           'Unable to initialize bank connection. Please try again later.';
+        setError(errorMessage);
       } finally {
         setLoading(false);
       }
@@ -176,6 +184,7 @@ function PlaidLinkComponent({
   const { open, ready } = usePlaidLink({
     token: linkToken,
     onSuccess: (publicToken, metadata) => {
+      console.log('Plaid Link success:', metadata.institution?.name);
       onSuccess(publicToken, metadata);
     },
     onExit: (err, metadata) => {
@@ -184,12 +193,40 @@ function PlaidLinkComponent({
     },
   });
 
-  if (loading || !ready) {
+  if (loading) {
     return (
       <button className="plaid-link-btn" disabled>
         <div className="btn-loading">
           <div className="loading-spinner small"></div>
-          Loading...
+          Initializing...
+        </div>
+      </button>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="plaid-error">
+        <div className="error-message">
+          <span className="error-icon">⚠️</span>
+          {error}
+        </div>
+        <button 
+          className="retry-btn"
+          onClick={() => window.location.reload()}
+        >
+          Try Again
+        </button>
+      </div>
+    );
+  }
+
+  if (!linkToken || !ready) {
+    return (
+      <button className="plaid-link-btn" disabled>
+        <div className="btn-loading">
+          <div className="loading-spinner small"></div>
+          Preparing connection...
         </div>
       </button>
     );
@@ -1494,6 +1531,7 @@ function SettingsTab({
                     ) : (
                       <PlaidLinkComponent 
                         onSuccess={handlePlaidSuccess}
+                        onExit={() => console.log('Plaid Link closed')}
                       />
                     )}
                     <p className="plaid-disclaimer">
