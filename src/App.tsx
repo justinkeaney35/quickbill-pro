@@ -3,7 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-ro
 import { Zap, FileText, Users, Settings, CreditCard, PlusCircle, Download, Send, Eye, Mail, Lock, User, Building, X, DollarSign } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, EmbeddedCheckout as StripeEmbeddedCheckout, EmbeddedCheckoutProvider } from '@stripe/react-stripe-js';
-import { authAPI, subscriptionsAPI, invoicesAPI, clientsAPI, connectAPI, payoutsAPI } from './utils/api';
+import { usePlaidLink } from 'react-plaid-link';
+import { authAPI, subscriptionsAPI, invoicesAPI, clientsAPI, connectAPI, payoutsAPI, plaidAPI } from './utils/api';
 import './App.css';
 
 // Initialize Stripe
@@ -143,6 +144,62 @@ function EmbeddedCheckout({
         </div>
       </div>
     </div>
+  );
+}
+
+// Plaid Link Component
+function PlaidLinkComponent({ 
+  onSuccess, 
+  onExit 
+}: { 
+  onSuccess: (publicToken: string, metadata: any) => void;
+  onExit?: () => void;
+}) {
+  const [linkToken, setLinkToken] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const createLinkToken = async () => {
+      try {
+        const response = await plaidAPI.createLinkToken();
+        setLinkToken(response.link_token);
+      } catch (error) {
+        console.error('Failed to create Plaid link token:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    createLinkToken();
+  }, []);
+
+  const { open, ready } = usePlaidLink({
+    token: linkToken,
+    onSuccess: (publicToken, metadata) => {
+      onSuccess(publicToken, metadata);
+    },
+    onExit: (err, metadata) => {
+      console.log('Plaid Link exited:', err, metadata);
+      if (onExit) onExit();
+    },
+  });
+
+  if (loading || !ready) {
+    return (
+      <button className="plaid-link-btn" disabled>
+        <div className="btn-loading">
+          <div className="loading-spinner small"></div>
+          Loading...
+        </div>
+      </button>
+    );
+  }
+
+  return (
+    <button className="plaid-link-btn" onClick={() => open()}>
+      <Building className="icon" />
+      Connect Bank Account
+    </button>
   );
 }
 
@@ -1277,27 +1334,29 @@ function SettingsTab({
     company: user.company
   });
 
-  const [payoutStatus, setPayoutStatus] = useState<{
-    status: string;
-    accountId?: string;
-    details_submitted?: boolean;
-    charges_enabled?: boolean;
-    payouts_enabled?: boolean;
+  const [bankAccount, setBankAccount] = useState<{
+    connected: boolean;
+    account?: {
+      name: string;
+      type: string;
+      institution: string;
+      connected_at: string;
+    };
   } | null>(null);
 
-  const [payoutLoading, setPayoutLoading] = useState(false);
+  const [plaidLoading, setPlaidLoading] = useState(false);
 
-  // Load payout status on component mount
+  // Load bank account status on component mount
   useEffect(() => {
-    const loadPayoutStatus = async () => {
+    const loadBankAccountStatus = async () => {
       try {
-        const status = await connectAPI.getAccountStatus();
-        setPayoutStatus(status);
+        const accountInfo = await plaidAPI.getAccountInfo();
+        setBankAccount(accountInfo);
       } catch (error) {
-        console.error('Failed to load payout status:', error);
+        console.error('Failed to load bank account status:', error);
       }
     };
-    loadPayoutStatus();
+    loadBankAccountStatus();
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -1307,33 +1366,36 @@ function SettingsTab({
     }
   };
 
-  const handleSetupPayouts = async () => {
-    setPayoutLoading(true);
+  const handlePlaidSuccess = async (publicToken: string, metadata: any) => {
+    setPlaidLoading(true);
     try {
-      let accountId = payoutStatus?.accountId;
-      
-      // Create account if it doesn't exist
-      if (!accountId) {
-        const createResult = await connectAPI.createAccount();
-        accountId = createResult.accountId;
+      const result = await plaidAPI.exchangePublicToken(publicToken, metadata);
+      if (result.success) {
+        // Refresh bank account status
+        const accountInfo = await plaidAPI.getAccountInfo();
+        setBankAccount(accountInfo);
+        alert('Bank account connected successfully!');
       }
-
-      // Ensure accountId is available
-      if (!accountId) {
-        throw new Error('Failed to create or retrieve account ID');
-      }
-
-      // Create account link for onboarding
-      const linkResult = await connectAPI.createAccountLink(accountId);
-      
-      // Redirect to Stripe onboarding
-      window.location.href = linkResult.url;
-      
     } catch (error) {
-      console.error('Failed to setup payouts:', error);
-      alert('Failed to setup payouts. Please try again.');
+      console.error('Failed to connect bank account:', error);
+      alert('Failed to connect bank account. Please try again.');
     } finally {
-      setPayoutLoading(false);
+      setPlaidLoading(false);
+    }
+  };
+
+  const handleDisconnectBank = async () => {
+    if (!window.confirm('Are you sure you want to disconnect your bank account?')) {
+      return;
+    }
+
+    try {
+      await plaidAPI.disconnect();
+      setBankAccount({ connected: false });
+      alert('Bank account disconnected successfully.');
+    } catch (error) {
+      console.error('Failed to disconnect bank account:', error);
+      alert('Failed to disconnect bank account. Please try again.');
     }
   };
 
@@ -1378,25 +1440,31 @@ function SettingsTab({
       </div>
 
       <div className="settings-section">
-        <h2>Payout Setup</h2>
-        <p>Configure where you want to receive payments from your invoices.</p>
+        <h2>Bank Account Setup</h2>
+        <p>Connect your bank account to receive payments from your invoices securely through Plaid.</p>
         
-        <div className="payout-status">
-          {payoutStatus ? (
+        <div className="bank-account-status">
+          {bankAccount ? (
             <>
-              {payoutStatus.status === 'not_created' ? (
-                <div className="payout-not-setup">
+              {!bankAccount.connected ? (
+                <div className="bank-not-connected">
                   <div className="setup-header">
                     <div className="setup-icon">
                       <Building className="icon" />
                     </div>
                     <div className="setup-content">
-                      <h3>Set up your bank account</h3>
-                      <p>Connect your bank account to receive payments from your invoices. We'll transfer your earnings weekly.</p>
+                      <h3>Connect your bank account</h3>
+                      <p>Securely link your bank account using Plaid to receive automatic weekly payouts from your invoices.</p>
                     </div>
                   </div>
                   
                   <div className="payout-benefits">
+                    <div className="benefit-item">
+                      <div className="benefit-icon">
+                        <Lock className="icon" />
+                      </div>
+                      <span>Bank-grade 256-bit encryption</span>
+                    </div>
                     <div className="benefit-item">
                       <div className="benefit-icon">
                         <CreditCard className="icon" />
@@ -1405,75 +1473,82 @@ function SettingsTab({
                     </div>
                     <div className="benefit-item">
                       <div className="benefit-icon">
-                        <Send className="icon" />
+                        <DollarSign className="icon" />
                       </div>
-                      <span>Secure bank-grade encryption</span>
+                      <span>No setup or transfer fees</span>
                     </div>
                     <div className="benefit-item">
                       <div className="benefit-icon">
-                        <DollarSign className="icon" />
+                        <Send className="icon" />
                       </div>
-                      <span>No setup fees</span>
+                      <span>2-3 business day transfers</span>
                     </div>
                   </div>
 
-                  <button 
-                    className="setup-payouts-btn"
-                    onClick={handleSetupPayouts}
-                    disabled={payoutLoading}
-                  >
-                    {payoutLoading ? 'Setting up...' : 'Setup Bank Account'}
-                  </button>
-                </div>
-              ) : payoutStatus.status === 'pending' ? (
-                <div className="payout-pending">
-                  <div className="payout-icon">
-                    <Settings className="icon" />
+                  <div className="plaid-connect-section">
+                    {plaidLoading ? (
+                      <button className="setup-payouts-btn" disabled>
+                        <div className="loading-spinner small"></div>
+                        Connecting...
+                      </button>
+                    ) : (
+                      <PlaidLinkComponent 
+                        onSuccess={handlePlaidSuccess}
+                      />
+                    )}
+                    <p className="plaid-disclaimer">
+                      Powered by Plaid. Your banking information is never stored on our servers.
+                    </p>
                   </div>
-                  <h3>Bank account setup in progress</h3>
-                  <p>Complete your bank account verification to start receiving payouts.</p>
-                  
-                  <button 
-                    className="continue-setup-btn"
-                    onClick={handleSetupPayouts}
-                    disabled={payoutLoading}
-                  >
-                    {payoutLoading ? 'Loading...' : 'Continue Setup'}
-                  </button>
                 </div>
               ) : (
-                <div className="payout-active">
-                  <div className="payout-icon">
+                <div className="bank-connected">
+                  <div className="bank-icon">
                     <CreditCard className="icon" />
                   </div>
                   <h3>Bank account connected</h3>
-                  <p>Your bank account is set up and ready to receive payouts.</p>
+                  <p>Your bank account is securely connected and ready to receive payouts.</p>
                   
-                  <div className="payout-details">
+                  <div className="bank-details">
+                    <div className="detail-row">
+                      <span>Institution:</span>
+                      <span className="value">{bankAccount.account?.institution}</span>
+                    </div>
+                    <div className="detail-row">
+                      <span>Account:</span>
+                      <span className="value">{bankAccount.account?.name} ({bankAccount.account?.type})</span>
+                    </div>
+                    <div className="detail-row">
+                      <span>Connected:</span>
+                      <span className="value">
+                        {bankAccount.account?.connected_at 
+                          ? new Date(bankAccount.account.connected_at).toLocaleDateString()
+                          : 'Recently'
+                        }
+                      </span>
+                    </div>
                     <div className="detail-row">
                       <span>Status:</span>
                       <span className="status-badge active">Active</span>
                     </div>
-                    <div className="detail-row">
-                      <span>Payouts:</span>
-                      <span className={payoutStatus.payouts_enabled ? 'status-enabled' : 'status-disabled'}>
-                        {payoutStatus.payouts_enabled ? 'Enabled' : 'Pending'}
-                      </span>
-                    </div>
-                    <div className="detail-row">
-                      <span>Payments:</span>
-                      <span className={payoutStatus.charges_enabled ? 'status-enabled' : 'status-disabled'}>
-                        {payoutStatus.charges_enabled ? 'Enabled' : 'Pending'}
-                      </span>
-                    </div>
+                  </div>
+
+                  <div className="bank-actions">
+                    <button 
+                      className="disconnect-btn"
+                      onClick={handleDisconnectBank}
+                    >
+                      <Settings className="icon" />
+                      Disconnect Bank Account
+                    </button>
                   </div>
                 </div>
               )}
             </>
           ) : (
-            <div className="payout-loading">
+            <div className="bank-loading">
               <div className="loading-spinner"></div>
-              <p>Loading payout status...</p>
+              <p>Loading bank account status...</p>
             </div>
           )}
         </div>

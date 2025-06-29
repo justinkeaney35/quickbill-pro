@@ -204,6 +204,32 @@ export const payoutsAPI = {
   },
 };
 
+// Plaid API
+export const plaidAPI = {
+  createLinkToken: async () => {
+    const response = await api.post('/plaid/create-link-token');
+    return response.data;
+  },
+
+  exchangePublicToken: async (publicToken: string, metadata: any) => {
+    const response = await api.post('/plaid/exchange-public-token', {
+      public_token: publicToken,
+      metadata
+    });
+    return response.data;
+  },
+
+  getAccountInfo: async () => {
+    const response = await api.get('/plaid/account-info');
+    return response.data;
+  },
+
+  disconnect: async () => {
+    const response = await api.delete('/plaid/disconnect');
+    return response.data;
+  },
+};
+
 // Health check
 export const healthCheck = async () => {
   const response = await api.get('/health');

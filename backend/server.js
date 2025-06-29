@@ -8,6 +8,7 @@ const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 const nodemailer = require('nodemailer');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const { PlaidApi, Configuration, PlaidEnvironments } = require('plaid');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -16,6 +17,19 @@ const PORT = process.env.PORT || 3001;
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/quickbill_db'
 });
+
+// Plaid client configuration
+const plaidConfiguration = new Configuration({
+  basePath: PlaidEnvironments[process.env.PLAID_ENVIRONMENT || 'sandbox'],
+  baseOptions: {
+    headers: {
+      'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
+      'PLAID-SECRET': process.env.PLAID_SECRET,
+    },
+  },
+});
+
+const plaidClient = new PlaidApi(plaidConfiguration);
 
 // Middleware
 app.use(helmet());
@@ -239,6 +253,21 @@ const initDatabase = async () => {
         status VARCHAR(50) DEFAULT 'pending',
         arrival_date DATE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS bank_accounts (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+        plaid_access_token TEXT NOT NULL,
+        plaid_item_id VARCHAR(255) NOT NULL,
+        account_id VARCHAR(255) NOT NULL,
+        account_name VARCHAR(255) NOT NULL,
+        account_type VARCHAR(50) NOT NULL,
+        institution_name VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -1631,6 +1660,223 @@ app.post('/api/admin/process-payouts', async (req, res) => {
   } catch (error) {
     console.error('Payout processing error:', error);
     res.status(500).json({ error: 'Failed to process payouts' });
+  }
+});
+
+// PLAID ROUTES FOR BANK ACCOUNT LINKING
+
+// Create Plaid Link token
+app.post('/api/plaid/create-link-token', authenticateToken, async (req, res) => {
+  try {
+    const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.userId]);
+    const user = userResult.rows[0];
+
+    const configs = {
+      user: {
+        client_user_id: user.id.toString(),
+      },
+      client_name: 'QuickBill Pro',
+      products: ['auth'],
+      country_codes: ['US'],
+      language: 'en',
+      webhook: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/plaid/webhook`,
+      account_filters: {
+        depository: {
+          account_type: ['checking', 'savings'],
+        },
+      },
+    };
+
+    const createTokenRequest = {
+      ...configs,
+    };
+
+    const response = await plaidClient.linkTokenCreate(createTokenRequest);
+    res.json({ link_token: response.data.link_token });
+
+  } catch (error) {
+    console.error('Create link token error:', error);
+    res.status(500).json({ error: 'Failed to create link token' });
+  }
+});
+
+// Exchange public token for access token and get account info
+app.post('/api/plaid/exchange-public-token', authenticateToken, async (req, res) => {
+  try {
+    const { public_token, metadata } = req.body;
+
+    // Exchange public token for access token
+    const exchangeRequest = {
+      public_token: public_token,
+    };
+
+    const exchangeResponse = await plaidClient.itemPublicTokenExchange(exchangeRequest);
+    const accessToken = exchangeResponse.data.access_token;
+    const itemId = exchangeResponse.data.item_id;
+
+    // Get account information
+    const accountsRequest = {
+      access_token: accessToken,
+    };
+
+    const accountsResponse = await plaidClient.accountsGet(accountsRequest);
+    const accounts = accountsResponse.data.accounts;
+
+    // Find the selected account (usually the first checking account)
+    const selectedAccount = accounts.find(account => 
+      account.subtype === 'checking' || account.subtype === 'savings'
+    ) || accounts[0];
+
+    if (!selectedAccount) {
+      return res.status(400).json({ error: 'No suitable account found' });
+    }
+
+    // Get account and routing numbers
+    const authRequest = {
+      access_token: accessToken,
+    };
+
+    const authResponse = await plaidClient.authGet(authRequest);
+    const authAccount = authResponse.data.accounts.find(acc => acc.account_id === selectedAccount.account_id);
+
+    if (!authAccount || !authAccount.account_id) {
+      return res.status(400).json({ error: 'Unable to retrieve account details' });
+    }
+
+    // Store bank account information in database
+    await pool.query(`
+      INSERT INTO bank_accounts (user_id, plaid_access_token, plaid_item_id, account_id, account_name, account_type, institution_name)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (user_id) DO UPDATE SET
+        plaid_access_token = $2,
+        plaid_item_id = $3,
+        account_id = $4,
+        account_name = $5,
+        account_type = $6,
+        institution_name = $7,
+        updated_at = CURRENT_TIMESTAMP
+    `, [
+      req.user.userId,
+      accessToken,
+      itemId,
+      selectedAccount.account_id,
+      selectedAccount.name,
+      selectedAccount.subtype,
+      metadata.institution?.name || 'Unknown Bank'
+    ]);
+
+    res.json({
+      success: true,
+      account: {
+        id: selectedAccount.account_id,
+        name: selectedAccount.name,
+        type: selectedAccount.subtype,
+        institution: metadata.institution?.name || 'Unknown Bank',
+        mask: selectedAccount.mask
+      }
+    });
+
+  } catch (error) {
+    console.error('Exchange public token error:', error);
+    res.status(500).json({ error: 'Failed to link bank account' });
+  }
+});
+
+// Get connected bank account info
+app.get('/api/plaid/account-info', authenticateToken, async (req, res) => {
+  try {
+    const bankAccountResult = await pool.query(
+      'SELECT * FROM bank_accounts WHERE user_id = $1',
+      [req.user.userId]
+    );
+
+    if (bankAccountResult.rows.length === 0) {
+      return res.json({ connected: false });
+    }
+
+    const bankAccount = bankAccountResult.rows[0];
+    
+    res.json({
+      connected: true,
+      account: {
+        name: bankAccount.account_name,
+        type: bankAccount.account_type,
+        institution: bankAccount.institution_name,
+        connected_at: bankAccount.created_at
+      }
+    });
+
+  } catch (error) {
+    console.error('Get account info error:', error);
+    res.status(500).json({ error: 'Failed to get account info' });
+  }
+});
+
+// Remove connected bank account
+app.delete('/api/plaid/disconnect', authenticateToken, async (req, res) => {
+  try {
+    // Get bank account info first
+    const bankAccountResult = await pool.query(
+      'SELECT plaid_access_token FROM bank_accounts WHERE user_id = $1',
+      [req.user.userId]
+    );
+
+    if (bankAccountResult.rows.length > 0) {
+      // Remove the item from Plaid (optional but recommended)
+      try {
+        const removeRequest = {
+          access_token: bankAccountResult.rows[0].plaid_access_token,
+        };
+        await plaidClient.itemRemove(removeRequest);
+      } catch (plaidError) {
+        console.warn('Failed to remove item from Plaid:', plaidError);
+        // Continue with database removal even if Plaid removal fails
+      }
+    }
+
+    // Remove from database
+    await pool.query('DELETE FROM bank_accounts WHERE user_id = $1', [req.user.userId]);
+
+    res.json({ success: true, message: 'Bank account disconnected successfully' });
+
+  } catch (error) {
+    console.error('Disconnect bank account error:', error);
+    res.status(500).json({ error: 'Failed to disconnect bank account' });
+  }
+});
+
+// Plaid webhook endpoint
+app.post('/api/plaid/webhook', async (req, res) => {
+  try {
+    const { webhook_type, webhook_code, item_id } = req.body;
+
+    console.log('Plaid webhook received:', { webhook_type, webhook_code, item_id });
+
+    // Handle different webhook types
+    switch (webhook_type) {
+      case 'ITEM':
+        if (webhook_code === 'ERROR') {
+          // Handle item errors (e.g., expired credentials)
+          console.log('Plaid item error for item:', item_id);
+          // You might want to notify the user or update the database
+        }
+        break;
+      
+      case 'AUTH':
+        if (webhook_code === 'AUTOMATICALLY_VERIFIED') {
+          console.log('Account automatically verified for item:', item_id);
+        }
+        break;
+      
+      default:
+        console.log('Unhandled webhook type:', webhook_type);
+    }
+
+    res.json({ received: true });
+
+  } catch (error) {
+    console.error('Plaid webhook error:', error);
+    res.status(500).json({ error: 'Webhook processing failed' });
   }
 });
 
