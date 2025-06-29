@@ -752,25 +752,136 @@ app.post('/api/invoices/:id/send', authenticateToken, async (req, res) => {
 
     const invoice = invoiceResult.rows[0];
 
-    // Email configuration (placeholder)
+    // Get invoice items
+    const itemsResult = await pool.query(
+      'SELECT * FROM invoice_items WHERE invoice_id = $1 ORDER BY id',
+      [id]
+    );
+    const items = itemsResult.rows;
+
+    // Professional invoice email template
     const mailOptions = {
-      from: process.env.FROM_EMAIL || 'noreply@quickbillpro.com',
+      from: process.env.FROM_EMAIL || 'QuickBillproverify@gmail.com',
       to: invoice.client_email,
       subject: `Invoice ${invoice.invoice_number} from ${invoice.user_company || invoice.user_name}`,
       html: `
-        <h2>Invoice ${invoice.invoice_number}</h2>
-        <p>Dear ${invoice.client_name},</p>
-        <p>Please find your invoice attached.</p>
-        <p><strong>Amount Due: $${parseFloat(invoice.total).toFixed(2)}</strong></p>
-        <p>Due Date: ${new Date(invoice.due_date).toLocaleDateString()}</p>
-        <p>Thank you for your business!</p>
-        <p>Best regards,<br>${invoice.user_name}<br>${invoice.user_company || ''}</p>
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #f8fafc;">
+          <div style="background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);">
+            <div style="text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #e2e8f0;">
+              <h1 style="color: #4F46E5; margin: 0; font-size: 1.875rem;">⚡ QuickBill Pro</h1>
+              <p style="color: #6B7280; margin: 5px 0 0 0; font-size: 1rem;">Professional Invoicing</p>
+            </div>
+            
+            <div style="text-align: center; margin-bottom: 30px;">
+              <h2 style="color: #1F2937; font-size: 2rem; margin: 0;">Invoice ${invoice.invoice_number}</h2>
+              <p style="color: #6B7280; margin: 10px 0 0 0;">From ${invoice.user_company || invoice.user_name}</p>
+            </div>
+
+            <div style="margin-bottom: 30px;">
+              <p style="color: #374151; font-size: 1.1rem; margin: 0 0 20px 0;">Dear ${invoice.client_name},</p>
+              <p style="color: #374151; line-height: 1.6; margin: 0 0 20px 0;">
+                Please find the details of your invoice below. Payment is due by the date specified.
+              </p>
+            </div>
+
+            <!-- Invoice Items Table -->
+            <div style="margin: 30px 0;">
+              <h3 style="color: #374151; margin: 0 0 20px 0; font-size: 1.25rem;">Invoice Details</h3>
+              <table style="width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+                <thead style="background: #f8fafc;">
+                  <tr>
+                    <th style="padding: 12px; text-align: left; color: #374151; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Description</th>
+                    <th style="padding: 12px; text-align: center; color: #374151; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Qty</th>
+                    <th style="padding: 12px; text-align: right; color: #374151; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Rate</th>
+                    <th style="padding: 12px; text-align: right; color: #374151; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${items.map(item => `
+                    <tr style="border-bottom: 1px solid #f1f5f9;">
+                      <td style="padding: 12px; color: #374151;">${item.description}</td>
+                      <td style="padding: 12px; text-align: center; color: #6B7280;">${item.quantity}</td>
+                      <td style="padding: 12px; text-align: right; color: #6B7280;">$${parseFloat(item.rate).toFixed(2)}</td>
+                      <td style="padding: 12px; text-align: right; color: #374151; font-weight: 600;">$${parseFloat(item.amount).toFixed(2)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+                <tfoot style="background: #f8fafc;">
+                  <tr>
+                    <td colspan="3" style="padding: 12px; text-align: right; color: #6B7280; font-weight: 600;">Subtotal:</td>
+                    <td style="padding: 12px; text-align: right; color: #374151; font-weight: 600;">$${parseFloat(invoice.subtotal).toFixed(2)}</td>
+                  </tr>
+                  ${invoice.tax_rate > 0 ? `
+                    <tr>
+                      <td colspan="3" style="padding: 12px; text-align: right; color: #6B7280; font-weight: 600;">Tax (${invoice.tax_rate}%):</td>
+                      <td style="padding: 12px; text-align: right; color: #374151; font-weight: 600;">$${parseFloat(invoice.tax_amount).toFixed(2)}</td>
+                    </tr>
+                  ` : ''}
+                  <tr style="border-top: 2px solid #e2e8f0;">
+                    <td colspan="3" style="padding: 15px 12px; text-align: right; color: #1F2937; font-weight: 700; font-size: 1.1rem;">Total Amount:</td>
+                    <td style="padding: 15px 12px; text-align: right; color: #4F46E5; font-weight: 700; font-size: 1.25rem;">$${parseFloat(invoice.total).toFixed(2)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <div style="background: #f8fafc; padding: 2rem; border-radius: 12px; margin: 30px 0; border: 2px solid #e2e8f0;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <span style="color: #6B7280; font-size: 1rem;">Amount Due:</span>
+                <span style="color: #4F46E5; font-size: 2rem; font-weight: 700;">$${parseFloat(invoice.total).toFixed(2)}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <span style="color: #6B7280;">Invoice Date:</span>
+                <span style="color: #374151; font-weight: 600;">${new Date(invoice.date).toLocaleDateString()}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="color: #6B7280;">Due Date:</span>
+                <span style="color: #ef4444; font-weight: 600;">${new Date(invoice.due_date).toLocaleDateString()}</span>
+              </div>
+            </div>
+
+            <div style="background: #fef3c7; padding: 1.5rem; border-radius: 8px; border-left: 4px solid #f59e0b; margin: 20px 0;">
+              <p style="color: #92400e; margin: 0; font-weight: 600;">
+                💡 Payment Instructions: Please include invoice number ${invoice.invoice_number} in your payment reference.
+              </p>
+            </div>
+
+            ${invoice.notes ? `
+              <div style="margin: 30px 0;">
+                <h3 style="color: #374151; margin: 0 0 10px 0;">Notes:</h3>
+                <p style="color: #6B7280; line-height: 1.6; margin: 0; font-style: italic;">${invoice.notes}</p>
+              </div>
+            ` : ''}
+
+            <div style="text-align: center; margin: 40px 0; padding: 20px; background: #f8fafc; border-radius: 8px;">
+              <p style="color: #374151; margin: 0 0 10px 0; font-size: 1.1rem;">Thank you for your business!</p>
+              <p style="color: #6B7280; margin: 0; line-height: 1.6;">
+                <strong>${invoice.user_name}</strong><br>
+                ${invoice.user_company ? `${invoice.user_company}<br>` : ''}
+                <span style="font-size: 0.9rem;">Powered by QuickBill Pro</span>
+              </p>
+            </div>
+
+            <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+              <p style="color: #9CA3AF; font-size: 0.875rem; margin: 0;">
+                This invoice was generated and sent via QuickBill Pro<br>
+                Professional invoicing made simple
+              </p>
+            </div>
+          </div>
+        </div>
       `
     };
 
-    // Send email (placeholder - will work when SMTP is configured)
+    // Send invoice email
     try {
-      await transporter.sendMail(mailOptions);
+      const info = await transporter.sendMail(mailOptions);
+      console.log(`Invoice ${invoice.invoice_number} sent to ${invoice.client_email}`);
+      
+      // If using Ethereal, log the preview URL
+      if (nodemailer.getTestMessageUrl(info)) {
+        console.log('Invoice email preview URL:', nodemailer.getTestMessageUrl(info));
+      }
       
       // Update invoice status to sent
       await pool.query(
@@ -778,10 +889,10 @@ app.post('/api/invoices/:id/send', authenticateToken, async (req, res) => {
         ['sent', id]
       );
 
-      res.json({ message: 'Invoice sent successfully' });
+      res.json({ message: 'Invoice sent successfully!' });
     } catch (emailError) {
-      console.error('Email sending error:', emailError);
-      res.status(500).json({ error: 'Failed to send email. Please configure SMTP settings.' });
+      console.error('Invoice email sending error:', emailError);
+      res.status(500).json({ error: 'Failed to send invoice email. Please try again later.' });
     }
 
   } catch (error) {
