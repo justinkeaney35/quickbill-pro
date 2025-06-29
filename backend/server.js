@@ -1640,47 +1640,76 @@ app.post('/api/connect/update-business-info', authenticateToken, async (req, res
   try {
     const { accountId, businessInfo } = req.body;
     
+    console.log('Updating business info for account:', accountId);
+    console.log('Business info received:', businessInfo);
+    
     if (!accountId) {
       return res.status(400).json({ error: 'Account ID is required' });
     }
 
-    // Update Stripe account with business information
+    // Build update data step by step to avoid Stripe API issues
     const updateData = {};
     
+    // Set business type if provided
     if (businessInfo.businessType) {
       updateData.business_type = businessInfo.businessType;
     }
     
-    if (businessInfo.companyName) {
-      updateData.company = {
-        name: businessInfo.companyName,
-        tax_id: businessInfo.taxId || undefined
-      };
-    }
-    
-    if (businessInfo.firstName && businessInfo.lastName) {
+    // For individual accounts, update individual info
+    if (businessInfo.businessType === 'individual' && businessInfo.firstName && businessInfo.lastName) {
       updateData.individual = {
         first_name: businessInfo.firstName,
-        last_name: businessInfo.lastName,
-        email: businessInfo.email,
-        phone: businessInfo.phone || undefined,
-        dob: businessInfo.dob ? {
-          day: parseInt(businessInfo.dob.day),
-          month: parseInt(businessInfo.dob.month),
-          year: parseInt(businessInfo.dob.year)
-        } : undefined,
-        address: businessInfo.address ? {
+        last_name: businessInfo.lastName
+      };
+      
+      // Only add email if it's provided and valid
+      if (businessInfo.email && businessInfo.email.includes('@')) {
+        updateData.individual.email = businessInfo.email;
+      }
+      
+      // Only add phone if provided
+      if (businessInfo.phone && businessInfo.phone.length >= 10) {
+        updateData.individual.phone = businessInfo.phone;
+      }
+      
+      // Only add address if all required fields are present
+      if (businessInfo.address && businessInfo.address.line1 && businessInfo.address.city && 
+          businessInfo.address.state && businessInfo.address.postal_code) {
+        updateData.individual.address = {
           line1: businessInfo.address.line1,
-          line2: businessInfo.address.line2 || undefined,
           city: businessInfo.address.city,
           state: businessInfo.address.state,
           postal_code: businessInfo.address.postal_code,
           country: 'US'
-        } : undefined
+        };
+        
+        if (businessInfo.address.line2) {
+          updateData.individual.address.line2 = businessInfo.address.line2;
+        }
+      }
+    }
+    
+    // For company accounts, update company info
+    if (businessInfo.businessType === 'company' && businessInfo.companyName) {
+      updateData.company = {
+        name: businessInfo.companyName
       };
+      
+      if (businessInfo.taxId && businessInfo.taxId.length >= 9) {
+        updateData.company.tax_id = businessInfo.taxId;
+      }
+    }
+
+    console.log('Sending update data to Stripe:', JSON.stringify(updateData, null, 2));
+
+    // Only update if we have valid data
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ error: 'No valid business information provided' });
     }
 
     const account = await stripe.accounts.update(accountId, updateData);
+    
+    console.log('Stripe account updated successfully:', account.id);
     
     res.json({ 
       success: true,
@@ -1689,10 +1718,17 @@ app.post('/api/connect/update-business-info', authenticateToken, async (req, res
     });
 
   } catch (error) {
-    console.error('Update business info error:', error);
+    console.error('Update business info error:', {
+      message: error.message,
+      type: error.type,
+      code: error.code,
+      param: error.param,
+      stack: error.stack
+    });
+    
     res.status(500).json({ 
       error: 'Failed to update business information',
-      details: error.message
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Please contact support'
     });
   }
 });

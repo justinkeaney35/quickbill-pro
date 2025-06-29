@@ -76,14 +76,30 @@ export default function StripeOnboarding({ onClose }: StripeOnboardingProps) {
     <div className="modal-overlay">
       <div className="modal stripe-onboarding-modal">
         <div className="modal-header">
-          <h2>Setup Payment Processing - Step {step} of 3</h2>
+          <h2>Setup Payment Processing</h2>
           <button className="close-btn" onClick={onClose}>&times;</button>
         </div>
         
-        <div className="step-indicator">
-          <div className={`step ${step >= 1 ? 'active' : ''}`}>1. Create Account</div>
-          <div className={`step ${step >= 2 ? 'active' : ''}`}>2. Business Info</div>
-          <div className={`step ${step >= 3 ? 'active' : ''}`}>3. Bank Account</div>
+        <div className="step-progress">
+          <div className="progress-bar">
+            <div className="progress-fill" style={{ width: `${(step / 3) * 100}%` }}></div>
+          </div>
+          <div className="step-indicator">
+            <div className={`step-dot ${step >= 1 ? 'active' : ''}`}>
+              <span>1</span>
+            </div>
+            <div className={`step-dot ${step >= 2 ? 'active' : ''}`}>
+              <span>2</span>
+            </div>
+            <div className={`step-dot ${step >= 3 ? 'active' : ''}`}>
+              <span>3</span>
+            </div>
+          </div>
+          <div className="step-labels">
+            <span className={step >= 1 ? 'active' : ''}>Account</span>
+            <span className={step >= 2 ? 'active' : ''}>Business</span>
+            <span className={step >= 3 ? 'active' : ''}>Banking</span>
+          </div>
         </div>
 
         {step === 1 && (

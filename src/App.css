@@ -4330,32 +4330,86 @@ body {
 /* Stripe Onboarding Modal */
 .stripe-onboarding-modal {
   width: 95%;
-  max-width: 800px;
+  max-width: 900px;
   max-height: 95vh;
   overflow-y: auto;
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.stripe-onboarding-modal .step-progress {
+  padding: 2rem 2rem 1rem 2rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.stripe-onboarding-modal .progress-bar {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  margin-bottom: 1.5rem;
+  overflow: hidden;
+}
+
+.stripe-onboarding-modal .progress-fill {
+  height: 100%;
+  background: white;
+  border-radius: 2px;
+  transition: width 0.3s ease;
 }
 
 .stripe-onboarding-modal .step-indicator {
   display: flex;
-  justify-content: center;
-  gap: 1rem;
-  margin: 1rem 0 2rem 0;
-  padding: 0 1rem;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  position: relative;
 }
 
-.stripe-onboarding-modal .step-indicator .step {
-  padding: 0.5rem 1rem;
-  background: #f3f4f6;
-  border-radius: 20px;
+.stripe-onboarding-modal .step-indicator::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.2);
+  z-index: 1;
+}
+
+.stripe-onboarding-modal .step-dot {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 1rem;
+  z-index: 2;
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
+}
+
+.stripe-onboarding-modal .step-dot.active {
+  background: white;
+  color: #667eea;
+  border-color: white;
+}
+
+.stripe-onboarding-modal .step-labels {
+  display: flex;
+  justify-content: space-between;
   font-size: 0.875rem;
   font-weight: 500;
-  color: #6b7280;
-  transition: all 0.2s ease;
+  opacity: 0.8;
 }
 
-.stripe-onboarding-modal .step-indicator .step.active {
-  background: #4f46e5;
-  color: white;
+.stripe-onboarding-modal .step-labels span.active {
+  opacity: 1;
+  font-weight: 600;
 }
 
 .stripe-onboarding-modal .form-grid {
@@ -4425,3 +4479,104 @@ body {
     text-align: center;
   }
 }
+
+.stripe-onboarding-modal .form-group select {
+  padding: 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: border-color 0.2s ease;
+  background: white;
+  appearance: none;
+  background-image: url('data:image/svg+xml;charset=US-ASCII,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 5"><path fill="%23666" d="M2 0L0 2h4zm0 5L0 3h4z"/></svg>');
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 0.75rem;
+  padding-right: 2.5rem;
+}
+
+.stripe-onboarding-modal .setup-content {
+  padding: 2rem;
+  background: white;
+}
+
+.stripe-onboarding-modal .setup-content h3 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 0.5rem;
+  text-align: center;
+}
+
+.stripe-onboarding-modal .setup-content > p {
+  color: #6b7280;
+  margin-bottom: 2rem;
+  text-align: center;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.stripe-onboarding-modal .benefits-list {
+  display: grid;
+  gap: 1rem;
+  margin: 2rem 0;
+}
+
+.stripe-onboarding-modal .benefit-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+}
+
+.stripe-onboarding-modal .benefit-icon {
+  color: #10b981;
+  flex-shrink: 0;
+}
+
+.stripe-onboarding-modal .stripe-connect-btn {
+  width: 100%;
+  padding: 1rem 1.5rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-top: 2rem;
+}
+
+.stripe-onboarding-modal .stripe-connect-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px -5px rgba(102, 126, 234, 0.4);
+}
+
+.stripe-onboarding-modal .stripe-connect-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.stripe-onboarding-modal .form-group input,
+.stripe-onboarding-modal .form-group select {
+  border-radius: 8px;
+  border: 2px solid #e5e7eb;
+  transition: all 0.2s ease;
+}
+
+.stripe-onboarding-modal .form-group input:focus,
+.stripe-onboarding-modal .form-group select:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.stripe-onboarding-modal .form-group label {
+  font-weight: 600;
+  color: #374151;
+}
+

@@ -211,7 +211,9 @@ function PlaidLinkComponent({
     return (
       <div className="plaid-error">
         <div className="error-message">
-          <span className="error-icon">⚠️</span>
+          <div className="error-icon">
+            <X size={20} />
+          </div>
           {error}
         </div>
         <button 
@@ -586,7 +588,9 @@ function InvoicesTab({
         <div className="header-actions">
           {!stripeConnected && (
             <div className="stripe-notice">
-              <span className="notice-icon">⚠️</span>
+              <div className="notice-icon">
+                <CreditCard size={20} />
+              </div>
               <span>Connect Stripe to accept payments</span>
               <button 
                 className="setup-stripe-btn"
