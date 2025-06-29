@@ -1460,12 +1460,12 @@ app.get('/api/connect/debug', authenticateToken, async (req, res) => {
   }
 });
 
-// Create or get Connect account for user
+// Create Connect account for user
 app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
   try {
     console.log('Creating Connect account for user:', req.user.userId);
     
-    // Check if user already has a Connect account (including Stripe-side check)
+    // Check if user already has a Connect account
     const existingAccount = await pool.query(
       'SELECT stripe_account_id, account_status FROM connect_accounts WHERE user_id = $1',
       [req.user.userId]
@@ -1478,135 +1478,41 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
       // Verify account still exists in Stripe
       try {
         const stripeAccount = await stripe.accounts.retrieve(accountId);
-        console.log('Stripe account verified:', stripeAccount.id);
-        
         return res.json({ 
           accountId: accountId,
+          status: stripeAccount.details_submitted ? 'active' : 'pending',
           message: 'Account already exists' 
         });
       } catch (stripeError) {
-        console.log('Stripe account not found, will create new one:', stripeError.message);
-        // Delete the orphaned record and continue to create new account
+        console.log('Stripe account not found, creating new one');
         await pool.query('DELETE FROM connect_accounts WHERE user_id = $1', [req.user.userId]);
       }
     }
 
     // Get user details
-    const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.userId]);
+    const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [req.user.userId]);
     
     if (userResult.rows.length === 0) {
-      console.error('User not found:', req.user.userId);
       return res.status(404).json({ error: 'User not found' });
     }
     
     const user = userResult.rows[0];
-    console.log('Creating Stripe account for user:', {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      company: user.company
-    });
 
-    // Validate Stripe is properly configured
-    if (!process.env.STRIPE_SECRET_KEY) {
-      console.error('Stripe secret key not configured');
-      return res.status(500).json({ error: 'Payment processing not configured' });
-    }
-
-    // Validate user email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    console.log('Validating email format:', {
-      email: user.email,
-      isValid: emailRegex.test(user.email),
-      emailType: typeof user.email,
-      emailLength: user.email ? user.email.length : 'null/undefined'
-    });
-    
-    if (!user.email || !emailRegex.test(user.email)) {
-      console.error('Invalid email format:', user.email);
-      return res.status(400).json({ 
-        error: 'Invalid user email format',
-        details: process.env.NODE_ENV === 'development' ? `Email: ${user.email}` : undefined
-      });
-    }
-
-    // Check if email is already associated with a Stripe account
-    try {
-      const existingStripeAccounts = await stripe.accounts.list({
-        limit: 10,
-        created: { gte: Math.floor(Date.now() / 1000) - (30 * 24 * 60 * 60) } // Last 30 days
-      });
-      
-      const duplicateAccount = existingStripeAccounts.data.find(acc => 
-        acc.email === user.email || 
-        (acc.metadata && acc.metadata.user_email === user.email)
-      );
-      
-      if (duplicateAccount) {
-        console.log('Found existing Stripe account for email:', user.email);
-        
-        // Save to our database if not already there
-        try {
-          await pool.query(`
-            INSERT INTO connect_accounts (user_id, stripe_account_id, account_status)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (user_id) DO UPDATE SET stripe_account_id = $2
-          `, [user.id, duplicateAccount.id, 'pending']);
-        } catch (dbError) {
-          console.log('Database insert failed, but account exists:', dbError.message);
-        }
-        
-        return res.json({
-          accountId: duplicateAccount.id,
-          message: 'Using existing Stripe account'
-        });
-      }
-    } catch (listError) {
-      console.log('Could not check existing accounts:', listError.message);
-      // Continue with account creation
-    }
-
-    // Create Stripe Express account for direct payments
-    const accountData = {
+    // Create Stripe Express account
+    const account = await stripe.accounts.create({
       type: 'express',
-      country: 'US',
       email: user.email,
       capabilities: {
         card_payments: { requested: true },
         transfers: { requested: true },
       },
       metadata: {
-        user_id: user.id.toString(),
-        user_email: user.email,
-        platform: 'quickbill_pro',
-        created_at: new Date().toISOString()
+        user_id: req.user.userId.toString(),
+        platform: 'quickbill_pro'
       }
-    };
-
-    // Only add business_type and settings if not causing issues
-    try {
-      accountData.business_type = 'individual';
-      accountData.settings = {
-        payouts: {
-          schedule: {
-            interval: 'daily'
-          }
-        }
-      };
-    } catch (settingsError) {
-      console.log('Using minimal account settings');
-    }
-
-    console.log('Creating Stripe account with data:', {
-      type: accountData.type,
-      country: accountData.country,
-      email: accountData.email,
-      capabilities: accountData.capabilities
     });
 
-    const account = await stripe.accounts.create(accountData);
-
-    console.log('Stripe account created successfully:', account.id);
+    console.log('Created Stripe account:', account.id);
 
     // Save account to database
     await pool.query(`
@@ -1616,7 +1522,7 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
         stripe_account_id = $2, 
         account_status = $3,
         updated_at = CURRENT_TIMESTAMP
-    `, [user.id, account.id, 'pending']);
+    `, [req.user.userId, account.id, 'pending']);
 
     console.log('Connect account saved to database');
 
@@ -1673,7 +1579,7 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
 // Create account link for Express onboarding
 app.post('/api/connect/create-account-link', authenticateToken, async (req, res) => {
   try {
-    const { accountId, embedded = false } = req.body;
+    const { accountId } = req.body;
 
     if (!accountId) {
       return res.status(400).json({ error: 'Account ID is required' });
@@ -1697,7 +1603,7 @@ app.post('/api/connect/create-account-link', authenticateToken, async (req, res)
   }
 });
 
-// Create embedded onboarding session (keeps users on site)
+// Create embedded onboarding session (keeps users on your site)
 app.post('/api/connect/create-embedded-onboarding', authenticateToken, async (req, res) => {
   try {
     const { accountId } = req.body;
@@ -1715,15 +1621,19 @@ app.post('/api/connect/create-embedded-onboarding', authenticateToken, async (re
     });
 
     res.json({ 
-      clientSecret: accountSession.client_secret,
-      accountId: accountId
+      client_secret: accountSession.client_secret,
+      account_id: accountId
     });
 
   } catch (error) {
     console.error('Create embedded onboarding error:', error);
-    res.status(500).json({ error: 'Failed to create embedded onboarding session' });
+    res.status(500).json({ 
+      error: 'Failed to create embedded onboarding session',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
+
 
 // Get Connect account status
 app.get('/api/connect/account-status', authenticateToken, async (req, res) => {
