@@ -918,6 +918,7 @@ function PricingTab({ user }: { user: User }) {
 
 // Payouts Tab
 function PayoutsTab({ user }: { user: User }) {
+  const [activeSubTab, setActiveSubTab] = useState('overview');
   const [payoutData, setPayoutData] = useState<{
     payouts: any[];
     balance: {
@@ -954,111 +955,310 @@ function PayoutsTab({ user }: { user: User }) {
     );
   }
 
-  return (
-    <div className="payouts-tab">
-      <div className="payouts-header">
-        <h1>Payouts</h1>
-        <p>Track your earnings and payout history</p>
+  const renderOverviewTab = () => (
+    <div className="payout-overview">
+      <div className="payout-balance-grid">
+        <div className="balance-card pending">
+          <div className="balance-icon">
+            <DollarSign className="icon" />
+          </div>
+          <div className="balance-info">
+            <h3>Pending Balance</h3>
+            <div className="balance-amount">${payoutData?.balance.pending || '0.00'}</div>
+            <p>Available for next payout</p>
+          </div>
+        </div>
+
+        <div className="balance-card earnings">
+          <div className="balance-icon">
+            <CreditCard className="icon" />
+          </div>
+          <div className="balance-info">
+            <h3>Total Earnings</h3>
+            <div className="balance-amount">${payoutData?.balance.totalEarnings || '0.00'}</div>
+            <p>From paid invoices (after fees)</p>
+          </div>
+        </div>
+
+        <div className="balance-card paid-out">
+          <div className="balance-icon">
+            <Send className="icon" />
+          </div>
+          <div className="balance-info">
+            <h3>Total Paid Out</h3>
+            <div className="balance-amount">${payoutData?.balance.totalPaidOut || '0.00'}</div>
+            <p>Transferred to your bank</p>
+          </div>
+        </div>
+
+        <div className="balance-card fees">
+          <div className="balance-icon">
+            <Building className="icon" />
+          </div>
+          <div className="balance-info">
+            <h3>Platform Fees</h3>
+            <div className="balance-amount">${payoutData?.balance.platformFees || '0.00'}</div>
+            <p>3% processing fees</p>
+          </div>
+        </div>
       </div>
 
-      {payoutData && (
-        <>
-          <div className="payout-balance-grid">
-            <div className="balance-card pending">
-              <div className="balance-icon">💰</div>
-              <div className="balance-info">
-                <h3>Pending Balance</h3>
-                <div className="balance-amount">${payoutData.balance.pending}</div>
-                <p>Available for next payout</p>
-              </div>
-            </div>
-
-            <div className="balance-card earnings">
-              <div className="balance-icon">📈</div>
-              <div className="balance-info">
-                <h3>Total Earnings</h3>
-                <div className="balance-amount">${payoutData.balance.totalEarnings}</div>
-                <p>From paid invoices (after fees)</p>
-              </div>
-            </div>
-
-            <div className="balance-card paid-out">
-              <div className="balance-icon">🏦</div>
-              <div className="balance-info">
-                <h3>Total Paid Out</h3>
-                <div className="balance-amount">${payoutData.balance.totalPaidOut}</div>
-                <p>Transferred to your bank</p>
-              </div>
-            </div>
-
-            <div className="balance-card fees">
-              <div className="balance-icon">📊</div>
-              <div className="balance-info">
-                <h3>Platform Fees</h3>
-                <div className="balance-amount">${payoutData.balance.platformFees}</div>
-                <p>3% processing fees</p>
-              </div>
+      <div className="payout-info-grid">
+        <div className="info-card">
+          <div className="info-header">
+            <h3>Payout Schedule</h3>
+            <div className="info-icon">
+              <Settings className="icon" />
             </div>
           </div>
-
-          <div className="payout-info-section">
-            <h2>Payout Schedule</h2>
-            <div className="payout-schedule">
-              <div className="schedule-item">
-                <strong>Frequency:</strong> Weekly (every Friday)
-              </div>
-              <div className="schedule-item">
-                <strong>Minimum:</strong> $10.00
-              </div>
-              <div className="schedule-item">
-                <strong>Arrival:</strong> 2-3 business days
-              </div>
-              <div className="schedule-item">
-                <strong>Fee:</strong> Free ACH transfers
-              </div>
+          <div className="info-list">
+            <div className="info-item">
+              <span className="label">Frequency:</span>
+              <span className="value">Weekly (every Friday)</span>
+            </div>
+            <div className="info-item">
+              <span className="label">Minimum:</span>
+              <span className="value">$10.00</span>
+            </div>
+            <div className="info-item">
+              <span className="label">Transfer Time:</span>
+              <span className="value">2-3 business days</span>
+            </div>
+            <div className="info-item">
+              <span className="label">Transfer Fee:</span>
+              <span className="value">Free ACH transfers</span>
             </div>
           </div>
+        </div>
 
-          <div className="payout-history-section">
-            <h2>Payout History</h2>
-            {payoutData.payouts.length > 0 ? (
-              <div className="payout-history">
-                <div className="payout-table">
-                  <div className="table-header">
-                    <div>Date</div>
-                    <div>Amount</div>
-                    <div>Status</div>
-                    <div>Arrival</div>
-                  </div>
-                  {payoutData.payouts.map((payout, index) => (
-                    <div key={index} className="table-row">
-                      <div>{new Date(payout.created_at).toLocaleDateString()}</div>
-                      <div>${parseFloat(payout.amount).toFixed(2)}</div>
-                      <div>
-                        <span className={`status-badge ${payout.status}`}>
-                          {payout.status === 'completed' ? 'Completed' : 'Pending'}
-                        </span>
-                      </div>
-                      <div>
-                        {payout.arrival_date 
-                          ? new Date(payout.arrival_date).toLocaleDateString()
-                          : '-'
-                        }
-                      </div>
-                    </div>
-                  ))}
+        <div className="info-card">
+          <div className="info-header">
+            <h3>Fee Structure</h3>
+            <div className="info-icon">
+              <FileText className="icon" />
+            </div>
+          </div>
+          <div className="info-list">
+            <div className="info-item">
+              <span className="label">Platform Fee:</span>
+              <span className="value">3% per transaction</span>
+            </div>
+            <div className="info-item">
+              <span className="label">Your Share:</span>
+              <span className="value">97% per transaction</span>
+            </div>
+            <div className="info-item">
+              <span className="label">Payout Fee:</span>
+              <span className="value">$0.00</span>
+            </div>
+            <div className="info-item">
+              <span className="label">Processing:</span>
+              <span className="value">Automatic</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderHistoryTab = () => (
+    <div className="payout-history-section">
+      {payoutData && payoutData.payouts.length > 0 ? (
+        <div className="payout-table-container">
+          <div className="table-controls">
+            <div className="table-search">
+              <input type="text" placeholder="Search payouts..." className="search-input" />
+            </div>
+            <div className="table-filters">
+              <select className="filter-select">
+                <option value="all">All Status</option>
+                <option value="completed">Completed</option>
+                <option value="pending">Pending</option>
+              </select>
+            </div>
+          </div>
+          
+          <div className="payout-table">
+            <div className="table-header">
+              <div className="table-col">Date</div>
+              <div className="table-col">Amount</div>
+              <div className="table-col">Status</div>
+              <div className="table-col">Arrival Date</div>
+              <div className="table-col">Actions</div>
+            </div>
+            {payoutData.payouts.map((payout, index) => (
+              <div key={index} className="table-row">
+                <div className="table-col">
+                  {new Date(payout.created_at).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                  })}
+                </div>
+                <div className="table-col amount">${parseFloat(payout.amount).toFixed(2)}</div>
+                <div className="table-col">
+                  <span className={`status-badge ${payout.status}`}>
+                    {payout.status === 'completed' ? 'Completed' : 'Pending'}
+                  </span>
+                </div>
+                <div className="table-col">
+                  {payout.arrival_date 
+                    ? new Date(payout.arrival_date).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric'
+                      })
+                    : 'Processing'
+                  }
+                </div>
+                <div className="table-col">
+                  <button className="view-details-btn">
+                    <Eye className="icon" />
+                    View
+                  </button>
                 </div>
               </div>
-            ) : (
-              <div className="no-payouts">
-                <div className="no-payouts-icon">💳</div>
-                <h3>No payouts yet</h3>
-                <p>Your payouts will appear here once you start receiving payments on your invoices.</p>
-              </div>
-            )}
+            ))}
           </div>
-        </>
+        </div>
+      ) : (
+        <div className="empty-state">
+          <div className="empty-icon">
+            <DollarSign className="icon" />
+          </div>
+          <h3>No Payouts Yet</h3>
+          <p>Your payout history will appear here once you start receiving payments on your invoices.</p>
+          <Link to="/invoices" className="cta-button">
+            <PlusCircle className="icon" />
+            Create Your First Invoice
+          </Link>
+        </div>
       )}
+    </div>
+  );
+
+  const renderSettingsTab = () => (
+    <div className="payout-settings-section">
+      <div className="settings-grid">
+        <div className="settings-card">
+          <div className="settings-header">
+            <h3>Bank Account</h3>
+            <div className="settings-icon">
+              <Building className="icon" />
+            </div>
+          </div>
+          <p>Manage your connected bank account for payouts</p>
+          <div className="bank-info">
+            <div className="bank-status connected">
+              <span className="status-indicator"></span>
+              <span>Bank account connected</span>
+            </div>
+            <button className="secondary-button">
+              <Settings className="icon" />
+              Update Bank Details
+            </button>
+          </div>
+        </div>
+
+        <div className="settings-card">
+          <div className="settings-header">
+            <h3>Notification Preferences</h3>
+            <div className="settings-icon">
+              <Mail className="icon" />
+            </div>
+          </div>
+          <p>Choose how you want to be notified about payouts</p>
+          <div className="notification-settings">
+            <label className="checkbox-label">
+              <input type="checkbox" defaultChecked />
+              <span>Email notifications for payouts</span>
+            </label>
+            <label className="checkbox-label">
+              <input type="checkbox" defaultChecked />
+              <span>SMS notifications for large payouts</span>
+            </label>
+          </div>
+        </div>
+
+        <div className="settings-card">
+          <div className="settings-header">
+            <h3>Payout Schedule</h3>
+            <div className="settings-icon">
+              <Settings className="icon" />
+            </div>
+          </div>
+          <p>Customize your payout frequency</p>
+          <div className="schedule-options">
+            <label className="radio-label">
+              <input type="radio" name="schedule" value="weekly" defaultChecked />
+              <span>Weekly (Recommended)</span>
+            </label>
+            <label className="radio-label">
+              <input type="radio" name="schedule" value="monthly" />
+              <span>Monthly</span>
+            </label>
+          </div>
+        </div>
+
+        <div className="settings-card">
+          <div className="settings-header">
+            <h3>Security</h3>
+            <div className="settings-icon">
+              <Lock className="icon" />
+            </div>
+          </div>
+          <p>Security settings for your payout account</p>
+          <div className="security-settings">
+            <div className="security-item">
+              <span>Two-factor authentication</span>
+              <span className="status enabled">Enabled</span>
+            </div>
+            <div className="security-item">
+              <span>Account verification</span>
+              <span className="status verified">Verified</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="payouts-tab">
+      <div className="tab-header">
+        <h1>Earnings & Payouts</h1>
+        <p className="tab-subtitle">Track your earnings and manage your payout preferences</p>
+      </div>
+
+      <div className="sub-tabs">
+        <button 
+          className={`sub-tab ${activeSubTab === 'overview' ? 'active' : ''}`}
+          onClick={() => setActiveSubTab('overview')}
+        >
+          <DollarSign className="tab-icon" />
+          Overview
+        </button>
+        <button 
+          className={`sub-tab ${activeSubTab === 'history' ? 'active' : ''}`}
+          onClick={() => setActiveSubTab('history')}
+        >
+          <FileText className="tab-icon" />
+          Payout History
+        </button>
+        <button 
+          className={`sub-tab ${activeSubTab === 'settings' ? 'active' : ''}`}
+          onClick={() => setActiveSubTab('settings')}
+        >
+          <Settings className="tab-icon" />
+          Settings
+        </button>
+      </div>
+
+      <div className="sub-tab-content">
+        {activeSubTab === 'overview' && renderOverviewTab()}
+        {activeSubTab === 'history' && renderHistoryTab()}
+        {activeSubTab === 'settings' && renderSettingsTab()}
+      </div>
     </div>
   );
 }
@@ -1186,21 +1386,33 @@ function SettingsTab({
             <>
               {payoutStatus.status === 'not_created' ? (
                 <div className="payout-not-setup">
-                  <div className="payout-icon">🏦</div>
-                  <h3>Set up your bank account</h3>
-                  <p>Connect your bank account to receive payments from your invoices. We'll transfer your earnings weekly.</p>
+                  <div className="setup-header">
+                    <div className="setup-icon">
+                      <Building className="icon" />
+                    </div>
+                    <div className="setup-content">
+                      <h3>Set up your bank account</h3>
+                      <p>Connect your bank account to receive payments from your invoices. We'll transfer your earnings weekly.</p>
+                    </div>
+                  </div>
                   
                   <div className="payout-benefits">
                     <div className="benefit-item">
-                      <span className="benefit-check">✓</span>
+                      <div className="benefit-icon">
+                        <CreditCard className="icon" />
+                      </div>
                       <span>Automatic weekly payouts</span>
                     </div>
                     <div className="benefit-item">
-                      <span className="benefit-check">✓</span>
+                      <div className="benefit-icon">
+                        <Send className="icon" />
+                      </div>
                       <span>Secure bank-grade encryption</span>
                     </div>
                     <div className="benefit-item">
-                      <span className="benefit-check">✓</span>
+                      <div className="benefit-icon">
+                        <DollarSign className="icon" />
+                      </div>
                       <span>No setup fees</span>
                     </div>
                   </div>
@@ -1215,7 +1427,9 @@ function SettingsTab({
                 </div>
               ) : payoutStatus.status === 'pending' ? (
                 <div className="payout-pending">
-                  <div className="payout-icon">⏳</div>
+                  <div className="payout-icon">
+                    <Settings className="icon" />
+                  </div>
                   <h3>Bank account setup in progress</h3>
                   <p>Complete your bank account verification to start receiving payouts.</p>
                   
@@ -1229,7 +1443,9 @@ function SettingsTab({
                 </div>
               ) : (
                 <div className="payout-active">
-                  <div className="payout-icon">✅</div>
+                  <div className="payout-icon">
+                    <CreditCard className="icon" />
+                  </div>
                   <h3>Bank account connected</h3>
                   <p>Your bank account is set up and ready to receive payouts.</p>
                   
