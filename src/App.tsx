@@ -1118,6 +1118,11 @@ function SettingsTab({
         accountId = createResult.accountId;
       }
 
+      // Ensure accountId is available
+      if (!accountId) {
+        throw new Error('Failed to create or retrieve account ID');
+      }
+
       // Create account link for onboarding
       const linkResult = await connectAPI.createAccountLink(accountId);
       
