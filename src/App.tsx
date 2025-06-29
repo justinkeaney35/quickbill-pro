@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
-import { Zap, FileText, Users, Settings, CreditCard, PlusCircle, Download, Send, Eye, Mail, Lock, User, Building, X } from 'lucide-react';
+import { Zap, FileText, Users, Settings, CreditCard, PlusCircle, Download, Send, Eye, Mail, Lock, User, Building, X, DollarSign } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, EmbeddedCheckout as StripeEmbeddedCheckout, EmbeddedCheckoutProvider } from '@stripe/react-stripe-js';
-import { authAPI, subscriptionsAPI, invoicesAPI, clientsAPI, connectAPI } from './utils/api';
+import { authAPI, subscriptionsAPI, invoicesAPI, clientsAPI, connectAPI, payoutsAPI } from './utils/api';
 import './App.css';
 
 // Initialize Stripe
@@ -290,6 +290,13 @@ function App() {
                 <span>Clients</span>
               </button>
               <button 
+                className={`nav-item ${activeTab === 'payouts' ? 'active' : ''}`}
+                onClick={() => setActiveTab('payouts')}
+              >
+                <DollarSign size={20} />
+                <span>Payouts</span>
+              </button>
+              <button 
                 className={`nav-item ${activeTab === 'pricing' ? 'active' : ''}`}
                 onClick={() => setActiveTab('pricing')}
               >
@@ -310,6 +317,7 @@ function App() {
             {activeTab === 'dashboard' && user && <Dashboard user={user} invoices={invoices} />}
             {activeTab === 'invoices' && user && <InvoicesTab invoices={invoices} setInvoices={setInvoices} user={user} setUser={setUser} clients={clients} />}
             {activeTab === 'clients' && <ClientsTab clients={clients} setClients={setClients} />}
+            {activeTab === 'payouts' && user && <PayoutsTab user={user} />}
             {activeTab === 'pricing' && user && <PricingTab user={user} />}
             {activeTab === 'settings' && user && <SettingsTab user={user} setUser={setUser} />}
           </main>
@@ -903,6 +911,153 @@ function PricingTab({ user }: { user: User }) {
           onClose={() => setShowEmbeddedCheckout(null)}
           onSuccess={handleCheckoutSuccess}
         />
+      )}
+    </div>
+  );
+}
+
+// Payouts Tab
+function PayoutsTab({ user }: { user: User }) {
+  const [payoutData, setPayoutData] = useState<{
+    payouts: any[];
+    balance: {
+      pending: string;
+      totalEarnings: string;
+      totalPaidOut: string;
+      platformFees: string;
+    };
+  } | null>(null);
+
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadPayoutData = async () => {
+      try {
+        const data = await payoutsAPI.getPayouts();
+        setPayoutData(data);
+      } catch (error) {
+        console.error('Failed to load payout data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPayoutData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="payouts-tab">
+        <div className="loading-spinner"></div>
+        <p>Loading payout information...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="payouts-tab">
+      <div className="payouts-header">
+        <h1>Payouts</h1>
+        <p>Track your earnings and payout history</p>
+      </div>
+
+      {payoutData && (
+        <>
+          <div className="payout-balance-grid">
+            <div className="balance-card pending">
+              <div className="balance-icon">💰</div>
+              <div className="balance-info">
+                <h3>Pending Balance</h3>
+                <div className="balance-amount">${payoutData.balance.pending}</div>
+                <p>Available for next payout</p>
+              </div>
+            </div>
+
+            <div className="balance-card earnings">
+              <div className="balance-icon">📈</div>
+              <div className="balance-info">
+                <h3>Total Earnings</h3>
+                <div className="balance-amount">${payoutData.balance.totalEarnings}</div>
+                <p>From paid invoices (after fees)</p>
+              </div>
+            </div>
+
+            <div className="balance-card paid-out">
+              <div className="balance-icon">🏦</div>
+              <div className="balance-info">
+                <h3>Total Paid Out</h3>
+                <div className="balance-amount">${payoutData.balance.totalPaidOut}</div>
+                <p>Transferred to your bank</p>
+              </div>
+            </div>
+
+            <div className="balance-card fees">
+              <div className="balance-icon">📊</div>
+              <div className="balance-info">
+                <h3>Platform Fees</h3>
+                <div className="balance-amount">${payoutData.balance.platformFees}</div>
+                <p>3% processing fees</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="payout-info-section">
+            <h2>Payout Schedule</h2>
+            <div className="payout-schedule">
+              <div className="schedule-item">
+                <strong>Frequency:</strong> Weekly (every Friday)
+              </div>
+              <div className="schedule-item">
+                <strong>Minimum:</strong> $10.00
+              </div>
+              <div className="schedule-item">
+                <strong>Arrival:</strong> 2-3 business days
+              </div>
+              <div className="schedule-item">
+                <strong>Fee:</strong> Free ACH transfers
+              </div>
+            </div>
+          </div>
+
+          <div className="payout-history-section">
+            <h2>Payout History</h2>
+            {payoutData.payouts.length > 0 ? (
+              <div className="payout-history">
+                <div className="payout-table">
+                  <div className="table-header">
+                    <div>Date</div>
+                    <div>Amount</div>
+                    <div>Status</div>
+                    <div>Arrival</div>
+                  </div>
+                  {payoutData.payouts.map((payout, index) => (
+                    <div key={index} className="table-row">
+                      <div>{new Date(payout.created_at).toLocaleDateString()}</div>
+                      <div>${parseFloat(payout.amount).toFixed(2)}</div>
+                      <div>
+                        <span className={`status-badge ${payout.status}`}>
+                          {payout.status === 'completed' ? 'Completed' : 'Pending'}
+                        </span>
+                      </div>
+                      <div>
+                        {payout.arrival_date 
+                          ? new Date(payout.arrival_date).toLocaleDateString()
+                          : '-'
+                        }
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="no-payouts">
+                <div className="no-payouts-icon">💳</div>
+                <h3>No payouts yet</h3>
+                <p>Your payouts will appear here once you start receiving payments on your invoices.</p>
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );

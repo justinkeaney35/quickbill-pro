@@ -1219,6 +1219,21 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
         console.log(`Subscription canceled for customer ${deletedSub.customer}`);
         break;
 
+      case 'payment_intent.succeeded':
+        const paymentIntent = event.data.object;
+        const invoiceId = paymentIntent.metadata.invoiceId;
+        
+        if (invoiceId) {
+          // Mark invoice as paid
+          await pool.query(
+            'UPDATE invoices SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+            ['paid', invoiceId]
+          );
+          
+          console.log(`Invoice ${invoiceId} marked as paid via payment intent ${paymentIntent.id}`);
+        }
+        break;
+
       default:
         console.log(`Unhandled event type ${event.type}`);
     }
@@ -1410,22 +1425,329 @@ app.get('/api/connect/account-status', authenticateToken, async (req, res) => {
   }
 });
 
+// PUBLIC INVOICE PAYMENT ROUTES
+
+// Get public invoice details (no auth required)
+app.get('/api/public/invoice/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get invoice with client and user details
+    const invoiceResult = await pool.query(`
+      SELECT 
+        i.*,
+        c.name as client_name,
+        c.email as client_email,
+        u.name as user_name,
+        u.company as user_company
+      FROM invoices i
+      JOIN clients c ON i.client_id = c.id
+      JOIN users u ON i.user_id = u.id
+      WHERE i.id = $1
+    `, [id]);
+
+    if (invoiceResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    const invoice = invoiceResult.rows[0];
+
+    // Get invoice items
+    const itemsResult = await pool.query(
+      'SELECT * FROM invoice_items WHERE invoice_id = $1 ORDER BY id',
+      [id]
+    );
+
+    res.json({
+      ...invoice,
+      items: itemsResult.rows
+    });
+
+  } catch (error) {
+    console.error('Get public invoice error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Create payment intent for public invoice payment
+app.post('/api/public/invoice/:id/pay', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { email } = req.body;
+
+    // Get invoice details
+    const invoiceResult = await pool.query(`
+      SELECT 
+        i.*,
+        u.name as user_name,
+        u.email as user_email,
+        u.id as user_id
+      FROM invoices i
+      JOIN users u ON i.user_id = u.id
+      WHERE i.id = $1
+    `, [id]);
+
+    if (invoiceResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    const invoice = invoiceResult.rows[0];
+
+    if (invoice.status === 'paid') {
+      return res.status(400).json({ error: 'Invoice is already paid' });
+    }
+
+    // Check if user has Connect account
+    const connectResult = await pool.query(
+      'SELECT stripe_account_id FROM connect_accounts WHERE user_id = $1 AND account_status = $2',
+      [invoice.user_id, 'active']
+    );
+
+    const amount = parseFloat(invoice.total);
+    const platformFeeAmount = Math.round(amount * 100 * 0.03); // 3% platform fee
+    const totalAmount = Math.round(amount * 100);
+
+    let paymentIntentData = {
+      amount: totalAmount,
+      currency: 'usd',
+      metadata: { 
+        invoiceId: id,
+        userId: invoice.user_id,
+        userEmail: invoice.user_email,
+        paymentType: 'public_invoice'
+      },
+      description: `Invoice ${invoice.invoice_number} from ${invoice.user_name}`,
+      receipt_email: email
+    };
+
+    // If user has Connect account, use application fee
+    if (connectResult.rows.length > 0) {
+      paymentIntentData = {
+        ...paymentIntentData,
+        application_fee_amount: platformFeeAmount,
+        transfer_data: {
+          destination: connectResult.rows[0].stripe_account_id,
+        }
+      };
+    }
+    
+    const paymentIntent = await stripe.paymentIntents.create(paymentIntentData);
+
+    res.json({
+      clientSecret: paymentIntent.client_secret,
+      amount: amount.toFixed(2),
+      hasConnectAccount: connectResult.rows.length > 0
+    });
+
+  } catch (error) {
+    console.error('Public invoice payment error:', error);
+    res.status(500).json({ error: 'Failed to create payment' });
+  }
+});
+
+// PAYOUT SYSTEM
+
+// Process automatic payouts for all eligible users
+app.post('/api/admin/process-payouts', async (req, res) => {
+  try {
+    console.log('Starting automatic payout processing...');
+
+    // Get all users with active Connect accounts and pending balances
+    const usersResult = await pool.query(`
+      SELECT u.id, u.email, u.name, ca.stripe_account_id, ca.payouts_enabled
+      FROM users u
+      JOIN connect_accounts ca ON u.id = ca.user_id
+      WHERE ca.account_status = 'active' AND ca.payouts_enabled = true
+    `);
+
+    const users = usersResult.rows;
+    console.log(`Found ${users.length} users eligible for payouts`);
+
+    let payoutsProcessed = 0;
+    let totalAmount = 0;
+
+    for (const user of users) {
+      try {
+        // Calculate user's pending balance from recent invoices
+        const balanceResult = await pool.query(`
+          SELECT SUM(total * 0.97) as pending_balance  -- 97% after 3% platform fee
+          FROM invoices 
+          WHERE user_id = $1 
+            AND status = 'paid' 
+            AND id NOT IN (
+              SELECT DISTINCT invoice_id 
+              FROM payouts 
+              WHERE user_id = $1 AND status = 'completed'
+            )
+        `, [user.id]);
+
+        const pendingBalance = parseFloat(balanceResult.rows[0].pending_balance || 0);
+        
+        // Only process payouts for amounts >= $10
+        if (pendingBalance >= 10) {
+          // Create transfer to user's Connect account
+          const transfer = await stripe.transfers.create({
+            amount: Math.round(pendingBalance * 100), // Convert to cents
+            currency: 'usd',
+            destination: user.stripe_account_id,
+            description: `Weekly payout for ${user.name} (${user.email})`,
+            metadata: {
+              user_id: user.id,
+              payout_type: 'automatic_weekly'
+            }
+          });
+
+          // Record payout in database
+          await pool.query(`
+            INSERT INTO payouts (user_id, stripe_transfer_id, amount, status, arrival_date)
+            VALUES ($1, $2, $3, $4, $5)
+          `, [
+            user.id, 
+            transfer.id, 
+            pendingBalance, 
+            'completed',
+            new Date(Date.now() + 2 * 24 * 60 * 60 * 1000) // 2 days from now
+          ]);
+
+          payoutsProcessed++;
+          totalAmount += pendingBalance;
+
+          console.log(`Processed payout for ${user.email}: $${pendingBalance.toFixed(2)}`);
+        } else {
+          console.log(`Skipping payout for ${user.email}: balance too low ($${pendingBalance.toFixed(2)})`);
+        }
+
+      } catch (userError) {
+        console.error(`Failed to process payout for user ${user.id}:`, userError);
+      }
+    }
+
+    res.json({
+      message: 'Payout processing completed',
+      payoutsProcessed,
+      totalAmount: totalAmount.toFixed(2)
+    });
+
+  } catch (error) {
+    console.error('Payout processing error:', error);
+    res.status(500).json({ error: 'Failed to process payouts' });
+  }
+});
+
+// Get user's payout history and pending balance
+app.get('/api/payouts', authenticateToken, async (req, res) => {
+  try {
+    // Get payout history
+    const payoutsResult = await pool.query(`
+      SELECT * FROM payouts 
+      WHERE user_id = $1 
+      ORDER BY created_at DESC 
+      LIMIT 20
+    `, [req.user.userId]);
+
+    // Calculate pending balance
+    const balanceResult = await pool.query(`
+      SELECT 
+        COALESCE(SUM(total), 0) as total_invoiced,
+        COALESCE(SUM(total * 0.97), 0) as total_earnings,
+        COALESCE(SUM(CASE WHEN status = 'paid' THEN total * 0.97 ELSE 0 END), 0) as total_paid_earnings
+      FROM invoices 
+      WHERE user_id = $1
+    `, [req.user.userId]);
+
+    const paidOutResult = await pool.query(`
+      SELECT COALESCE(SUM(amount), 0) as total_paid_out
+      FROM payouts 
+      WHERE user_id = $1 AND status = 'completed'
+    `, [req.user.userId]);
+
+    const stats = balanceResult.rows[0];
+    const totalPaidOut = parseFloat(paidOutResult.rows[0].total_paid_out || 0);
+    const pendingBalance = parseFloat(stats.total_paid_earnings) - totalPaidOut;
+
+    res.json({
+      payouts: payoutsResult.rows,
+      balance: {
+        pending: Math.max(0, pendingBalance).toFixed(2),
+        totalEarnings: parseFloat(stats.total_paid_earnings).toFixed(2),
+        totalPaidOut: totalPaidOut.toFixed(2),
+        platformFees: (parseFloat(stats.total_invoiced) * 0.03).toFixed(2)
+      }
+    });
+
+  } catch (error) {
+    console.error('Get payouts error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // PAYMENT INTEGRATION PLACEHOLDERS
 
-// Create Stripe payment intent for invoices
+// Create Stripe payment intent for invoices (Connect-enabled)
 app.post('/api/payments/stripe/intent', authenticateToken, async (req, res) => {
   try {
     const { invoiceId, amount } = req.body;
-    
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100), // Convert to cents
+
+    // Get invoice and user details
+    const invoiceResult = await pool.query(`
+      SELECT i.*, u.name as user_name, u.email as user_email
+      FROM invoices i
+      JOIN users u ON i.user_id = u.id
+      WHERE i.id = $1 AND i.user_id = $2
+    `, [invoiceId, req.user.userId]);
+
+    if (invoiceResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    const invoice = invoiceResult.rows[0];
+
+    // Check if user has Connect account
+    const connectResult = await pool.query(
+      'SELECT stripe_account_id FROM connect_accounts WHERE user_id = $1 AND account_status = $2',
+      [req.user.userId, 'active']
+    );
+
+    const platformFeeAmount = Math.round(amount * 100 * 0.03); // 3% platform fee
+    const totalAmount = Math.round(amount * 100);
+
+    let paymentIntentData = {
+      amount: totalAmount,
       currency: 'usd',
-      metadata: { invoiceId }
-    });
+      metadata: { 
+        invoiceId,
+        userId: req.user.userId,
+        userEmail: invoice.user_email
+      },
+      description: `Payment for invoice ${invoice.invoice_number} from ${invoice.user_name}`,
+      receipt_email: undefined // Will be set by client
+    };
+
+    // If user has Connect account, use application fee
+    if (connectResult.rows.length > 0) {
+      paymentIntentData = {
+        ...paymentIntentData,
+        application_fee_amount: platformFeeAmount,
+        transfer_data: {
+          destination: connectResult.rows[0].stripe_account_id,
+        },
+        metadata: {
+          ...paymentIntentData.metadata,
+          platform_fee: (platformFeeAmount / 100).toFixed(2),
+          user_receives: ((totalAmount - platformFeeAmount) / 100).toFixed(2)
+        }
+      };
+    }
+    
+    const paymentIntent = await stripe.paymentIntents.create(paymentIntentData);
 
     res.json({
-      clientSecret: paymentIntent.client_secret
+      clientSecret: paymentIntent.client_secret,
+      platformFee: (platformFeeAmount / 100).toFixed(2),
+      userReceives: ((totalAmount - platformFeeAmount) / 100).toFixed(2),
+      hasConnectAccount: connectResult.rows.length > 0
     });
+
   } catch (error) {
     console.error('Stripe payment intent error:', error);
     res.status(500).json({ error: 'Server error' });

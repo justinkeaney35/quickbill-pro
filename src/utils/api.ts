@@ -191,6 +191,19 @@ export const connectAPI = {
   },
 };
 
+// Payouts API
+export const payoutsAPI = {
+  getPayouts: async () => {
+    const response = await api.get('/payouts');
+    return response.data;
+  },
+
+  processPayouts: async () => {
+    const response = await api.post('/admin/process-payouts');
+    return response.data;
+  },
+};
+
 // Health check
 export const healthCheck = async () => {
   const response = await api.get('/health');
