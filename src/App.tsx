@@ -5,6 +5,7 @@ import { loadStripe } from '@stripe/stripe-js';
 import { Elements, EmbeddedCheckout as StripeEmbeddedCheckout, EmbeddedCheckoutProvider } from '@stripe/react-stripe-js';
 import { usePlaidLink } from 'react-plaid-link';
 import { authAPI, subscriptionsAPI, invoicesAPI, clientsAPI, connectAPI, payoutsAPI, plaidAPI } from './utils/api';
+import StripeOnboarding from './components/StripeOnboarding';
 import './App.css';
 
 // Initialize Stripe
@@ -772,7 +773,7 @@ function InvoicesTab({
       )}
 
       {selectedInvoice && selectedInvoice.id === 'stripe-setup' && (
-        <StripeSetupModal onClose={() => setSelectedInvoice(null)} />
+        <StripeOnboarding onClose={() => setSelectedInvoice(null)} />
       )}
 
       {selectedInvoice && selectedInvoice.id !== 'stripe-setup' && (
@@ -1314,101 +1315,6 @@ function CreateInvoiceModal({
   );
 }
 
-// Stripe Setup Modal
-function StripeSetupModal({ onClose }: { onClose: () => void }) {
-  const [loading, setLoading] = useState(false);
-  const [embeddedMode, setEmbeddedMode] = useState(true);
-  const [accountSession, setAccountSession] = useState<{clientSecret: string; accountId: string} | null>(null);
-
-  const handleSetupStripe = async () => {
-    setLoading(true);
-    try {
-      const accountResult = await connectAPI.createAccount();
-      
-      if (embeddedMode) {
-        // Try embedded onboarding first
-        try {
-          const sessionResult = await connectAPI.createEmbeddedOnboarding(accountResult.accountId);
-          setAccountSession(sessionResult);
-        } catch (embeddedError) {
-          console.warn('Embedded onboarding not available, falling back to redirect:', embeddedError);
-          // Fall back to redirect mode
-          const linkResult = await connectAPI.createAccountLink(accountResult.accountId);
-          window.location.href = linkResult.url;
-        }
-      } else {
-        // Use redirect mode
-        const linkResult = await connectAPI.createAccountLink(accountResult.accountId);
-        window.location.href = linkResult.url;
-      }
-    } catch (error) {
-      console.error('Stripe setup error:', error);
-      alert('Failed to setup Stripe. Please try again.');
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="modal-overlay">
-      <div className="modal stripe-setup-modal">
-        <div className="modal-header">
-          <h2>Setup Payment Processing</h2>
-          <button className="close-btn" onClick={onClose}>&times;</button>
-        </div>
-        
-        <div className="setup-content">
-          <div className="setup-icon">
-            <CreditCard className="icon" />
-          </div>
-          
-          <h3>Connect with Stripe</h3>
-          <p>Set up your Stripe account to start accepting payments from your invoices. This takes just 2-3 minutes.</p>
-          
-          <div className="benefits-list">
-            <div className="benefit-item">
-              <CheckCircle className="benefit-icon" />
-              <span>Accept credit cards and bank payments</span>
-            </div>
-            <div className="benefit-item">
-              <CheckCircle className="benefit-icon" />
-              <span>Get paid directly to your bank account</span>
-            </div>
-            <div className="benefit-item">
-              <CheckCircle className="benefit-icon" />
-              <span>Automatic invoice payment tracking</span>
-            </div>
-            <div className="benefit-item">
-              <CheckCircle className="benefit-icon" />
-              <span>Professional payment pages</span>
-            </div>
-          </div>
-          
-          <button 
-            className="stripe-connect-btn"
-            onClick={handleSetupStripe}
-            disabled={loading}
-          >
-            {loading ? (
-              <div className="btn-loading">
-                <div className="loading-spinner small" />
-                Setting up...
-              </div>
-            ) : (
-              <>
-                <ExternalLink className="btn-icon" />
-                Connect with Stripe
-              </>
-            )}
-          </button>
-          
-          <p className="setup-disclaimer">
-            You'll be redirected to Stripe to complete the setup process securely.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // Invoice View Modal
 function InvoiceViewModal({ 

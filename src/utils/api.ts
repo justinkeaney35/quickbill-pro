@@ -200,6 +200,36 @@ export const connectAPI = {
     return response.data;
   },
 
+  updateBusinessInfo: async (accountId: string, businessInfo: {
+    businessType: 'individual' | 'company';
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    phone?: string;
+    companyName?: string;
+    taxId?: string;
+    dob?: { day: string; month: string; year: string };
+    address?: {
+      line1: string;
+      line2?: string;
+      city: string;
+      state: string;
+      postal_code: string;
+    };
+  }) => {
+    const response = await api.post('/connect/update-business-info', { accountId, businessInfo });
+    return response.data;
+  },
+
+  updateBankAccount: async (accountId: string, bankInfo: {
+    routingNumber: string;
+    accountNumber: string;
+    accountHolderType: 'individual' | 'company';
+  }) => {
+    const response = await api.post('/connect/update-bank-account', { accountId, bankInfo });
+    return response.data;
+  },
+
   getAccountStatus: async () => {
     const response = await api.get('/connect/account-status');
     return response.data;
