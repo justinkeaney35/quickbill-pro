@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
-import { Zap, FileText, Users, Settings, CreditCard, PlusCircle, Download, Send, Eye, Mail, Lock, User, Building, X, DollarSign } from 'lucide-react';
+import { Zap, FileText, Users, Settings, CreditCard, PlusCircle, Download, Send, Eye, Mail, Lock, User, Building, X, DollarSign, ExternalLink, Copy, CheckCircle } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, EmbeddedCheckout as StripeEmbeddedCheckout, EmbeddedCheckoutProvider } from '@stripe/react-stripe-js';
 import { usePlaidLink } from 'react-plaid-link';
@@ -495,67 +495,257 @@ function InvoicesTab({
   clients: Client[];
 }) {
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [showActions, setShowActions] = useState<string | null>(null);
+  const [stripeConnected, setStripeConnected] = useState(false);
+  const [loadingActions, setLoadingActions] = useState<{[key: string]: boolean}>({});
 
   const canCreateInvoice = (user.plan === 'free' && user.invoicesThisMonth < user.maxInvoices) || user.plan !== 'free';
 
+  // Check Stripe Connect status
+  useEffect(() => {
+    const checkStripeStatus = async () => {
+      try {
+        const status = await connectAPI.getAccountStatus();
+        setStripeConnected(status.status === 'active' && status.charges_enabled);
+      } catch (error) {
+        console.error('Failed to check Stripe status:', error);
+      }
+    };
+    checkStripeStatus();
+  }, []);
+
+  const handleSendInvoice = async (invoice: Invoice) => {
+    setLoadingActions(prev => ({ ...prev, [`send-${invoice.id}`]: true }));
+    try {
+      await invoicesAPI.sendEmail(invoice.id, { send_copy: true });
+      // Update invoice status to sent
+      setInvoices(prev => prev.map(inv => 
+        inv.id === invoice.id 
+          ? { ...inv, status: 'sent' as const, sentAt: new Date().toISOString() }
+          : inv
+      ));
+      alert(`Invoice sent successfully to ${invoice.clientEmail}`);
+    } catch (error: any) {
+      console.error('Failed to send invoice:', error);
+      const message = error.response?.data?.message || 'Failed to send invoice';
+      alert(message);
+    } finally {
+      setLoadingActions(prev => ({ ...prev, [`send-${invoice.id}`]: false }));
+    }
+  };
+
+  const handleCreatePaymentLink = async (invoice: Invoice) => {
+    setLoadingActions(prev => ({ ...prev, [`link-${invoice.id}`]: true }));
+    try {
+      const result = await invoicesAPI.createPaymentLink(invoice.id);
+      // Update invoice with payment link
+      setInvoices(prev => prev.map(inv => 
+        inv.id === invoice.id 
+          ? { ...inv, paymentLink: result.payment_link }
+          : inv
+      ));
+      // Copy link to clipboard
+      navigator.clipboard.writeText(result.payment_link);
+      alert('Payment link created and copied to clipboard!');
+    } catch (error: any) {
+      console.error('Failed to create payment link:', error);
+      const message = error.response?.data?.message || 'Failed to create payment link';
+      alert(message);
+    } finally {
+      setLoadingActions(prev => ({ ...prev, [`link-${invoice.id}`]: false }));
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'paid': return '#10b981';
+      case 'sent': return '#3b82f6';
+      case 'overdue': return '#ef4444';
+      default: return '#6b7280';
+    }
+  };
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(amount);
+  };
+
   return (
-    <div className="invoices-tab">
-      <div className="tab-header">
-        <h1>Invoices</h1>
-        <button 
-          className="create-btn"
-          onClick={() => setShowCreateForm(true)}
-          disabled={!canCreateInvoice}
-        >
-          <PlusCircle size={20} />
-          Create Invoice
-        </button>
+    <div className="invoices-tab-container">
+      <div className="invoices-header">
+        <div className="header-content">
+          <h1>Invoices</h1>
+          <p className="header-subtitle">
+            Manage your invoices and get paid faster with Stripe integration
+          </p>
+        </div>
+        <div className="header-actions">
+          {!stripeConnected && (
+            <div className="stripe-notice">
+              <span className="notice-icon">⚠️</span>
+              <span>Connect Stripe to accept payments</span>
+              <button 
+                className="setup-stripe-btn"
+                onClick={() => setSelectedInvoice({ id: 'stripe-setup' } as Invoice)}
+              >
+                Setup Payments
+              </button>
+            </div>
+          )}
+          <button 
+            className="create-invoice-btn"
+            onClick={() => setShowCreateForm(true)}
+            disabled={!canCreateInvoice}
+          >
+            <PlusCircle className="btn-icon" />
+            Create Invoice
+          </button>
+        </div>
       </div>
 
       {!canCreateInvoice && (
-        <div className="upgrade-notice">
-          You've reached your monthly limit ({user.invoicesThisMonth}/{user.maxInvoices}). <span className="upgrade-link" onClick={() => window.location.hash = 'pricing'}>Upgrade your plan</span> to create more invoices.
+        <div className="plan-limitation">
+          <div className="limitation-content">
+            <span className="limitation-icon">📊</span>
+            <div>
+              <h3>Monthly Limit Reached</h3>
+              <p>You've created {user.invoicesThisMonth} of {user.maxInvoices} invoices this month.</p>
+            </div>
+            <button className="upgrade-btn" onClick={() => window.location.hash = 'pricing'}>
+              Upgrade Plan
+            </button>
+          </div>
         </div>
       )}
 
-      <div className="invoice-grid">
-        {invoices.map(invoice => (
-          <div key={invoice.id} className="invoice-card">
-            <div className="invoice-card-header">
-              <span className="invoice-number">{invoice.invoiceNumber}</span>
-              <div className={`status-badge status-${invoice.status}`}>
-                {invoice.status}
-              </div>
-            </div>
-            <div className="invoice-card-body">
-              <div className="client-info">
-                <strong>{invoice.clientName}</strong>
-                <p>{invoice.clientEmail}</p>
-              </div>
-              <div className="amount">
-                ${invoice.total.toLocaleString()}
-              </div>
-              <div className="dates">
-                <span>Due: {new Date(invoice.dueDate).toLocaleDateString()}</span>
-              </div>
-            </div>
-            <div className="invoice-card-actions">
-              <button className="action-btn">
-                <Eye size={16} />
-                View
-              </button>
-              <button className="action-btn">
-                <Download size={16} />
-                PDF
-              </button>
-              <button className="action-btn">
-                <Send size={16} />
-                Send
-              </button>
-            </div>
+      {invoices.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-icon">
+            <FileText className="icon" />
           </div>
-        ))}
-      </div>
+          <h3>No invoices yet</h3>
+          <p>Create your first invoice to start getting paid</p>
+          <button 
+            className="create-first-btn"
+            onClick={() => setShowCreateForm(true)}
+            disabled={!canCreateInvoice}
+          >
+            <PlusCircle className="btn-icon" />
+            Create Your First Invoice
+          </button>
+        </div>
+      ) : (
+        <div className="invoices-container">
+          <div className="invoices-grid">
+            {invoices.map(invoice => (
+              <div key={invoice.id} className="invoice-card">
+                <div className="card-header">
+                  <div className="invoice-info">
+                    <h3 className="invoice-number">#{invoice.invoiceNumber}</h3>
+                    <div 
+                      className="status-badge"
+                      style={{ backgroundColor: getStatusColor(invoice.status) }}
+                    >
+                      {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+                    </div>
+                  </div>
+                  <div className="invoice-amount">
+                    {formatCurrency(invoice.total)}
+                  </div>
+                </div>
+
+                <div className="card-body">
+                  <div className="client-section">
+                    <div className="client-avatar">
+                      <User className="avatar-icon" />
+                    </div>
+                    <div className="client-details">
+                      <h4>{invoice.clientName}</h4>
+                      <p>{invoice.clientEmail}</p>
+                    </div>
+                  </div>
+
+                  <div className="invoice-details">
+                    <div className="detail-row">
+                      <span className="label">Created:</span>
+                      <span className="value">
+                        {new Date(invoice.createdAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <div className="detail-row">
+                      <span className="label">Due:</span>
+                      <span className="value">
+                        {new Date(invoice.dueDate).toLocaleDateString()}
+                      </span>
+                    </div>
+                    {invoice.sentAt && (
+                      <div className="detail-row">
+                        <span className="label">Sent:</span>
+                        <span className="value">
+                          {new Date(invoice.sentAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="card-actions">
+                  <button 
+                    className="action-btn secondary"
+                    onClick={() => setSelectedInvoice(invoice)}
+                  >
+                    <Eye className="btn-icon" />
+                    View
+                  </button>
+                  
+                  {stripeConnected && invoice.status !== 'paid' && (
+                    <>
+                      <button 
+                        className="action-btn primary"
+                        onClick={() => handleSendInvoice(invoice)}
+                        disabled={loadingActions[`send-${invoice.id}`]}
+                      >
+                        {loadingActions[`send-${invoice.id}`] ? (
+                          <div className="loading-spinner small" />
+                        ) : (
+                          <Send className="btn-icon" />
+                        )}
+                        {invoice.sentAt ? 'Resend' : 'Send'}
+                      </button>
+                      
+                      <button 
+                        className="action-btn secondary"
+                        onClick={() => handleCreatePaymentLink(invoice)}
+                        disabled={loadingActions[`link-${invoice.id}`]}
+                      >
+                        {loadingActions[`link-${invoice.id}`] ? (
+                          <div className="loading-spinner small" />
+                        ) : (
+                          <CreditCard className="btn-icon" />
+                        )}
+                        {invoice.paymentLink ? 'Copy Link' : 'Payment Link'}
+                      </button>
+                    </>
+                  )}
+                  
+                  {!stripeConnected && (
+                    <button 
+                      className="action-btn disabled"
+                      title="Connect Stripe to enable payments"
+                    >
+                      <Lock className="btn-icon" />
+                      Setup Required
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {showCreateForm && (
         <CreateInvoiceModal 
@@ -564,7 +754,7 @@ function InvoicesTab({
           onSave={async (invoiceData) => {
             try {
               const newInvoice = await invoicesAPI.create(invoiceData);
-              setInvoices([...invoices, newInvoice]);
+              setInvoices([newInvoice, ...invoices]);
               setShowCreateForm(false);
               // Update user's invoice count
               if (user) {
@@ -578,6 +768,20 @@ function InvoicesTab({
               alert('Failed to create invoice. Please try again.');
             }
           }}
+        />
+      )}
+
+      {selectedInvoice && selectedInvoice.id === 'stripe-setup' && (
+        <StripeSetupModal onClose={() => setSelectedInvoice(null)} />
+      )}
+
+      {selectedInvoice && selectedInvoice.id !== 'stripe-setup' && (
+        <InvoiceViewModal 
+          invoice={selectedInvoice}
+          onClose={() => setSelectedInvoice(null)}
+          onSend={() => handleSendInvoice(selectedInvoice)}
+          onCreatePaymentLink={() => handleCreatePaymentLink(selectedInvoice)}
+          stripeConnected={stripeConnected}
         />
       )}
     </div>
@@ -772,6 +976,259 @@ function CreateInvoiceModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// Stripe Setup Modal
+function StripeSetupModal({ onClose }: { onClose: () => void }) {
+  const [loading, setLoading] = useState(false);
+
+  const handleSetupStripe = async () => {
+    setLoading(true);
+    try {
+      const accountResult = await connectAPI.createAccount();
+      const linkResult = await connectAPI.createAccountLink(accountResult.accountId);
+      window.location.href = linkResult.url;
+    } catch (error) {
+      console.error('Stripe setup error:', error);
+      alert('Failed to setup Stripe. Please try again.');
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal stripe-setup-modal">
+        <div className="modal-header">
+          <h2>Setup Payment Processing</h2>
+          <button className="close-btn" onClick={onClose}>&times;</button>
+        </div>
+        
+        <div className="setup-content">
+          <div className="setup-icon">
+            <CreditCard className="icon" />
+          </div>
+          
+          <h3>Connect with Stripe</h3>
+          <p>Set up your Stripe account to start accepting payments from your invoices. This takes just 2-3 minutes.</p>
+          
+          <div className="benefits-list">
+            <div className="benefit-item">
+              <CheckCircle className="benefit-icon" />
+              <span>Accept credit cards and bank payments</span>
+            </div>
+            <div className="benefit-item">
+              <CheckCircle className="benefit-icon" />
+              <span>Get paid directly to your bank account</span>
+            </div>
+            <div className="benefit-item">
+              <CheckCircle className="benefit-icon" />
+              <span>Automatic invoice payment tracking</span>
+            </div>
+            <div className="benefit-item">
+              <CheckCircle className="benefit-icon" />
+              <span>Professional payment pages</span>
+            </div>
+          </div>
+          
+          <button 
+            className="stripe-connect-btn"
+            onClick={handleSetupStripe}
+            disabled={loading}
+          >
+            {loading ? (
+              <div className="btn-loading">
+                <div className="loading-spinner small" />
+                Setting up...
+              </div>
+            ) : (
+              <>
+                <ExternalLink className="btn-icon" />
+                Connect with Stripe
+              </>
+            )}
+          </button>
+          
+          <p className="setup-disclaimer">
+            You'll be redirected to Stripe to complete the setup process securely.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Invoice View Modal
+function InvoiceViewModal({ 
+  invoice, 
+  onClose, 
+  onSend, 
+  onCreatePaymentLink, 
+  stripeConnected 
+}: { 
+  invoice: Invoice;
+  onClose: () => void;
+  onSend: () => void;
+  onCreatePaymentLink: () => void;
+  stripeConnected: boolean;
+}) {
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(amount);
+  };
+
+  const copyPaymentLink = () => {
+    if (invoice.paymentLink) {
+      navigator.clipboard.writeText(invoice.paymentLink);
+      alert('Payment link copied to clipboard!');
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal invoice-view-modal">
+        <div className="modal-header">
+          <h2>Invoice #{invoice.invoiceNumber}</h2>
+          <button className="close-btn" onClick={onClose}>&times;</button>
+        </div>
+        
+        <div className="invoice-preview">
+          <div className="invoice-header">
+            <div className="invoice-title">
+              <h1>Invoice</h1>
+              <div className="invoice-meta">
+                <span className="invoice-number">#{invoice.invoiceNumber}</span>
+                <div 
+                  className="status-badge"
+                  style={{ 
+                    backgroundColor: invoice.status === 'paid' ? '#10b981' : 
+                                    invoice.status === 'sent' ? '#3b82f6' : 
+                                    invoice.status === 'overdue' ? '#ef4444' : '#6b7280'
+                  }}
+                >
+                  {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+                </div>
+              </div>
+            </div>
+            
+            <div className="invoice-amount-large">
+              {formatCurrency(invoice.total)}
+            </div>
+          </div>
+          
+          <div className="invoice-details-grid">
+            <div className="bill-to">
+              <h4>Bill To:</h4>
+              <div className="client-info">
+                <p className="client-name">{invoice.clientName}</p>
+                <p className="client-email">{invoice.clientEmail}</p>
+                <p className="client-address">{invoice.clientAddress}</p>
+              </div>
+            </div>
+            
+            <div className="invoice-dates">
+              <h4>Invoice Details:</h4>
+              <div className="date-info">
+                <div className="date-row">
+                  <span>Issue Date:</span>
+                  <span>{new Date(invoice.createdAt).toLocaleDateString()}</span>
+                </div>
+                <div className="date-row">
+                  <span>Due Date:</span>
+                  <span>{new Date(invoice.dueDate).toLocaleDateString()}</span>
+                </div>
+                {invoice.sentAt && (
+                  <div className="date-row">
+                    <span>Sent:</span>
+                    <span>{new Date(invoice.sentAt).toLocaleDateString()}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          <div className="invoice-items">
+            <h4>Items:</h4>
+            <div className="items-table">
+              <div className="items-header">
+                <span>Description</span>
+                <span>Qty</span>
+                <span>Rate</span>
+                <span>Amount</span>
+              </div>
+              {invoice.items.map((item, index) => (
+                <div key={index} className="item-row">
+                  <span>{item.description}</span>
+                  <span>{item.quantity}</span>
+                  <span>{formatCurrency(item.rate)}</span>
+                  <span>{formatCurrency(item.amount)}</span>
+                </div>
+              ))}
+              <div className="total-row">
+                <span></span>
+                <span></span>
+                <span><strong>Total:</strong></span>
+                <span><strong>{formatCurrency(invoice.total)}</strong></span>
+              </div>
+            </div>
+          </div>
+          
+          {invoice.notes && (
+            <div className="invoice-notes">
+              <h4>Notes:</h4>
+              <p>{invoice.notes}</p>
+            </div>
+          )}
+          
+          {invoice.paymentLink && (
+            <div className="payment-link-section">
+              <h4>Payment Link:</h4>
+              <div className="payment-link-display">
+                <input 
+                  type="text" 
+                  value={invoice.paymentLink} 
+                  readOnly 
+                  className="payment-link-input"
+                />
+                <button className="copy-link-btn" onClick={copyPaymentLink}>
+                  <Copy className="btn-icon" />
+                  Copy
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+        
+        <div className="modal-actions">
+          <button className="secondary-btn" onClick={onClose}>
+            Close
+          </button>
+          
+          {stripeConnected && invoice.status !== 'paid' && (
+            <>
+              <button className="primary-btn" onClick={onSend}>
+                <Send className="btn-icon" />
+                {invoice.sentAt ? 'Resend Email' : 'Send Email'}
+              </button>
+              
+              <button className="secondary-btn" onClick={onCreatePaymentLink}>
+                <CreditCard className="btn-icon" />
+                {invoice.paymentLink ? 'Regenerate Link' : 'Create Payment Link'}
+              </button>
+            </>
+          )}
+          
+          {!stripeConnected && (
+            <div className="setup-required">
+              <Lock className="icon" />
+              <span>Connect Stripe to enable payments</span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
