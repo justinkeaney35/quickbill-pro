@@ -37,8 +37,17 @@ export default function StripeOnboarding({ onClose }: StripeOnboardingProps) {
     setLoading(true);
     try {
       const result = await connectAPI.createAccount();
+      console.log('Account creation result:', result);
       setAccountId(result.accountId);
-      setStep(2);
+      
+      // Check if we need to collect requirements
+      if (result.requirements && result.requirements.entries && result.requirements.entries.length > 0) {
+        console.log('Requirements found:', result.requirements.entries);
+        setStep(2);
+      } else {
+        // Account might be ready, go to step 3 (bank info)
+        setStep(3);
+      }
     } catch (error) {
       console.error('Account creation error:', error);
       alert('Failed to create account. Please try again.');
@@ -108,7 +117,7 @@ export default function StripeOnboarding({ onClose }: StripeOnboardingProps) {
               <CreditCard className="icon" />
             </div>
             <h3>Create Your Payment Account</h3>
-            <p>We'll create a secure Stripe Connect account for your business to accept payments.</p>
+            <p>We'll create a secure Stripe Connect account using the latest v2 API for seamless payment processing.</p>
             
             <div className="benefits-list">
               <div className="benefit-item">
@@ -122,6 +131,10 @@ export default function StripeOnboarding({ onClose }: StripeOnboardingProps) {
               <div className="benefit-item">
                 <CheckCircle className="benefit-icon" />
                 <span>Secure payment processing</span>
+              </div>
+              <div className="benefit-item">
+                <CheckCircle className="benefit-icon" />
+                <span>Compliant with latest regulations</span>
               </div>
             </div>
             

@@ -1471,10 +1471,10 @@ app.get('/api/connect/debug', authenticateToken, async (req, res) => {
   }
 });
 
-// Create Connect account for user
+// Create Connect account for user using Stripe API v2
 app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
   try {
-    console.log('Creating Connect account for user:', req.user.userId);
+    console.log('Creating Connect account v2 for user:', req.user.userId);
     
     // Check if user already has a Connect account
     const existingAccount = await pool.query(
@@ -1486,22 +1486,37 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
       const accountId = existingAccount.rows[0].stripe_account_id;
       console.log('Account already exists:', accountId);
       
-      // Verify account still exists in Stripe
       try {
-        const stripeAccount = await stripe.accounts.retrieve(accountId);
-        return res.json({ 
-          accountId: accountId,
-          status: stripeAccount.details_submitted ? 'active' : 'pending',
-          message: 'Account already exists' 
+        // Get requirements for existing account
+        const response = await fetch(`https://api.stripe.com/v2/core/accounts/${accountId}`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+            'Stripe-Version': '2025-03-31.preview',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            include: ['requirements', 'configuration.merchant']
+          })
         });
-      } catch (stripeError) {
-        console.log('Stripe account not found, creating new one');
+        
+        if (response.ok) {
+          const account = await response.json();
+          return res.json({ 
+            accountId: accountId,
+            requirements: account.requirements,
+            status: account.requirements?.summary?.minimum_deadline?.status || 'pending',
+            message: 'Account already exists' 
+          });
+        }
+      } catch (error) {
+        console.log('Error retrieving existing account, creating new one');
         await pool.query('DELETE FROM connect_accounts WHERE user_id = $1', [req.user.userId]);
       }
     }
 
     // Get user details
-    const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [req.user.userId]);
+    const userResult = await pool.query('SELECT email, name FROM users WHERE id = $1', [req.user.userId]);
     
     if (userResult.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
@@ -1509,21 +1524,64 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
     
     const user = userResult.rows[0];
 
-    // Create Stripe Express account
-    const account = await stripe.accounts.create({
-      type: 'express',
-      email: user.email,
-      capabilities: {
-        card_payments: { requested: true },
-        transfers: { requested: true },
+    // Create Stripe Connect account using v2 API
+    const accountData = {
+      contact_email: user.email,
+      display_name: user.name || 'QuickBill User',
+      dashboard: 'none',
+      identity: {
+        country: 'us',
+        entity_type: 'individual' // Start with individual, can be updated
       },
-      metadata: {
-        user_id: req.user.userId.toString(),
-        platform: 'quickbill_pro'
-      }
+      configuration: {
+        merchant: {
+          capabilities: {
+            card_payments: {
+              requested: true
+            },
+            transfers: {
+              requested: true
+            }
+          }
+        }
+      },
+      defaults: {
+        currency: 'usd',
+        responsibilities: {
+          fees_collector: 'application',
+          losses_collector: 'application'
+        },
+        locales: ['en-US']
+      },
+      include: [
+        'configuration.merchant',
+        'identity',
+        'requirements'
+      ]
+    };
+
+    console.log('Creating account with data:', JSON.stringify(accountData, null, 2));
+
+    // Use fetch to call Stripe v2 API
+    const response = await fetch('https://api.stripe.com/v2/core/accounts', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+        'Stripe-Version': '2025-03-31.preview',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(accountData)
     });
 
-    console.log('Created Stripe account:', account.id);
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('Stripe v2 API error:', errorData);
+      throw new Error(`Stripe API error: ${errorData.error?.message || 'Unknown error'}`);
+    }
+
+    const account = await response.json();
+    console.log('Created Stripe v2 account:', account.id);
+    console.log('Account requirements:', account.requirements);
 
     // Save account to database
     await pool.query(`
@@ -1539,50 +1597,17 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
 
     res.json({ 
       accountId: account.id,
+      requirements: account.requirements,
+      status: account.requirements?.summary?.minimum_deadline?.status || 'pending',
       message: 'Connect account created successfully' 
     });
 
   } catch (error) {
-    console.error('Create Connect account error:', {
-      message: error.message,
-      stack: error.stack,
-      code: error.code,
-      type: error.type,
-      decline_code: error.decline_code,
-      param: error.param
-    });
-    
-    // Provide more specific error messages based on Stripe error types
-    if (error.type === 'StripeInvalidRequestError') {
-      let errorMessage = 'Invalid request to payment processor';
-      
-      if (error.message.includes('email')) {
-        errorMessage = 'Email address is invalid or already in use';
-      } else if (error.message.includes('country')) {
-        errorMessage = 'Country not supported for payment processing';
-      } else if (error.message.includes('capabilities')) {
-        errorMessage = 'Payment capabilities not available';
-      } else if (error.message.includes('business_type')) {
-        errorMessage = 'Business type configuration error';
-      }
-      
-      return res.status(400).json({ 
-        error: errorMessage,
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
-    }
-    
-    if (error.type === 'StripeRateLimitError') {
-      return res.status(429).json({ error: 'Too many requests. Please try again in a moment.' });
-    }
-    
-    if (error.code === '23505') { // PostgreSQL unique constraint violation
-      return res.status(409).json({ error: 'Account already exists for this user' });
-    }
+    console.error('Create Connect account error:', error);
     
     res.status(500).json({ 
       error: 'Failed to create payment account',
-      details: process.env.NODE_ENV === 'development' ? error.message : 'Please contact support if this persists'
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Please contact support'
     });
   }
 });
@@ -1646,71 +1671,112 @@ app.post('/api/connect/create-embedded-onboarding', authenticateToken, async (re
 });
 
 
-// Update Connect account with business information
+// Update Connect account with business information using v2 API
 app.post('/api/connect/update-business-info', authenticateToken, async (req, res) => {
   try {
     const { accountId, businessInfo } = req.body;
     
-    console.log('Updating business info for account:', accountId);
+    console.log('Updating business info v2 for account:', accountId);
     console.log('Business info received:', JSON.stringify(businessInfo, null, 2));
     
     if (!accountId) {
       return res.status(400).json({ error: 'Account ID is required' });
     }
 
-    // Get current account to check what can be updated
-    const currentAccount = await stripe.accounts.retrieve(accountId);
-    console.log('Current account status:', {
-      id: currentAccount.id,
-      business_type: currentAccount.business_type,
-      details_submitted: currentAccount.details_submitted,
-      charges_enabled: currentAccount.charges_enabled
+    // Prepare update data for Stripe v2 API
+    const updateData = {
+      identity: {}
+    };
+
+    // Update entity type if changed
+    if (businessInfo.businessType) {
+      updateData.identity.entity_type = businessInfo.businessType;
+    }
+
+    // Add business details based on entity type
+    if (businessInfo.businessType === 'company' && businessInfo.companyName) {
+      updateData.identity.business_details = {
+        registered_name: businessInfo.companyName
+      };
+      
+      if (businessInfo.taxId) {
+        updateData.identity.business_details.tax_id = businessInfo.taxId;
+      }
+    }
+
+    // Add individual information
+    if (businessInfo.businessType === 'individual' && businessInfo.firstName && businessInfo.lastName) {
+      updateData.identity.individual = {
+        first_name: businessInfo.firstName,
+        last_name: businessInfo.lastName
+      };
+
+      if (businessInfo.email) {
+        updateData.identity.individual.email = businessInfo.email;
+      }
+
+      if (businessInfo.phone) {
+        updateData.identity.individual.phone = businessInfo.phone;
+      }
+
+      // Add address if provided
+      if (businessInfo.address && businessInfo.address.line1) {
+        updateData.identity.individual.address = {
+          line1: businessInfo.address.line1,
+          city: businessInfo.address.city,
+          state: businessInfo.address.state,
+          postal_code: businessInfo.address.postal_code,
+          country: 'US'
+        };
+
+        if (businessInfo.address.line2) {
+          updateData.identity.individual.address.line2 = businessInfo.address.line2;
+        }
+      }
+    }
+
+    console.log('Sending update to Stripe v2:', JSON.stringify(updateData, null, 2));
+
+    // Update account using Stripe v2 API
+    const response = await fetch(`https://api.stripe.com/v2/core/accounts/${accountId}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+        'Stripe-Version': '2025-03-31.preview',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(updateData)
     });
 
-    // For new accounts that haven't submitted details yet, we can update more fields
-    if (!currentAccount.details_submitted) {
-      
-      // Only try to update if business type isn't already set
-      const updateData = {};
-      
-      if (!currentAccount.business_type && businessInfo.businessType) {
-        updateData.business_type = businessInfo.businessType;
-      }
-
-      console.log('Minimal update data:', JSON.stringify(updateData, null, 2));
-
-      if (Object.keys(updateData).length > 0) {
-        await stripe.accounts.update(accountId, updateData);
-        console.log('Business type updated successfully');
-      }
-
-      // Store the business info in our database for later use
-      await pool.query(`
-        UPDATE connect_accounts 
-        SET business_info = $1, updated_at = CURRENT_TIMESTAMP
-        WHERE stripe_account_id = $2
-      `, [JSON.stringify(businessInfo), accountId]);
-
-      console.log('Business info stored in database');
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('Stripe v2 update error:', errorData);
+      throw new Error(`Stripe API error: ${errorData.error?.message || 'Update failed'}`);
     }
+
+    const updatedAccount = await response.json();
+    console.log('Account updated successfully:', updatedAccount.id);
+
+    // Store the business info in our database
+    await pool.query(`
+      UPDATE connect_accounts 
+      SET business_info = $1, updated_at = CURRENT_TIMESTAMP
+      WHERE stripe_account_id = $2
+    `, [JSON.stringify(businessInfo), accountId]);
+
+    console.log('Business info stored in database');
     
     res.json({ 
       success: true,
       account_id: accountId,
-      message: 'Business information saved successfully'
+      message: 'Business information updated successfully'
     });
 
   } catch (error) {
-    console.error('Update business info error:', {
-      message: error.message,
-      type: error.type,
-      code: error.code,
-      param: error.param,
-      stack: error.stack
-    });
+    console.error('Update business info error:', error);
     
     res.status(500).json({ 
-      error: 'Failed to save business information',
+      error: 'Failed to update business information',
       details: process.env.NODE_ENV === 'development' ? error.message : 'Please contact support'
     });
   }
