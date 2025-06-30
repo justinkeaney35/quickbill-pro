@@ -1562,26 +1562,71 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
 
     console.log('Creating account with data:', JSON.stringify(accountData, null, 2));
 
-    // Use fetch to call Stripe v2 API
-    const response = await fetch('https://api.stripe.com/v2/core/accounts', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
-        'Stripe-Version': '2025-03-31.preview',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(accountData)
-    });
+    // Try v2 API first, fallback to v1 if not available
+    let account;
+    let useV1Fallback = false;
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('Stripe v2 API error:', errorData);
-      throw new Error(`Stripe API error: ${errorData.error?.message || 'Unknown error'}`);
+    try {
+      console.log('Attempting Stripe v2 API call...');
+      const response = await fetch('https://api.stripe.com/v2/core/accounts', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+          'Stripe-Version': '2025-03-31.preview',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(accountData)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Stripe v2 API error response:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText
+        });
+        
+        // If v2 API is not available, fallback to v1
+        if (response.status === 404 || response.status === 400) {
+          console.log('V2 API not available, falling back to v1...');
+          useV1Fallback = true;
+        } else {
+          let errorData;
+          try {
+            errorData = JSON.parse(errorText);
+          } catch (e) {
+            errorData = { error: { message: errorText } };
+          }
+          throw new Error(`Stripe API error (${response.status}): ${errorData.error?.message || errorText}`);
+        }
+      } else {
+        account = await response.json();
+        console.log('Created Stripe v2 account:', account.id);
+      }
+    } catch (error) {
+      console.log('V2 API failed, falling back to v1:', error.message);
+      useV1Fallback = true;
     }
 
-    const account = await response.json();
-    console.log('Created Stripe v2 account:', account.id);
-    console.log('Account requirements:', account.requirements);
+    // Fallback to Stripe v1 API (Express accounts)
+    if (useV1Fallback) {
+      console.log('Using Stripe v1 Express account creation...');
+      account = await stripe.accounts.create({
+        type: 'express',
+        email: user.email,
+        country: 'US',
+        capabilities: {
+          card_payments: { requested: true },
+          transfers: { requested: true },
+        },
+        business_type: 'individual', // Default to individual
+        metadata: {
+          user_id: req.user.userId.toString(),
+          platform: 'quickbill_pro'
+        }
+      });
+      console.log('Created Stripe v1 Express account:', account.id);
+    }
 
     // Save account to database
     await pool.query(`
@@ -1737,25 +1782,95 @@ app.post('/api/connect/update-business-info', authenticateToken, async (req, res
 
     console.log('Sending update to Stripe v2:', JSON.stringify(updateData, null, 2));
 
-    // Update account using Stripe v2 API
-    const response = await fetch(`https://api.stripe.com/v2/core/accounts/${accountId}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
-        'Stripe-Version': '2025-03-31.preview',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(updateData)
-    });
+    // Try to update using v2 API first, fallback to v1
+    let updatedAccount;
+    let useV1Update = false;
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('Stripe v2 update error:', errorData);
-      throw new Error(`Stripe API error: ${errorData.error?.message || 'Update failed'}`);
+    try {
+      console.log('Attempting v2 account update...');
+      const response = await fetch(`https://api.stripe.com/v2/core/accounts/${accountId}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+          'Stripe-Version': '2025-03-31.preview',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(updateData)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Stripe v2 update error:', {
+          status: response.status,
+          body: errorText
+        });
+        
+        if (response.status === 404 || response.status === 400) {
+          console.log('V2 update not available, falling back to v1...');
+          useV1Update = true;
+        } else {
+          throw new Error(`Stripe v2 API error: ${errorText}`);
+        }
+      } else {
+        updatedAccount = await response.json();
+        console.log('Account updated with v2 API:', updatedAccount.id);
+      }
+    } catch (error) {
+      console.log('V2 update failed, trying v1:', error.message);
+      useV1Update = true;
     }
 
-    const updatedAccount = await response.json();
-    console.log('Account updated successfully:', updatedAccount.id);
+    // Fallback to v1 update
+    if (useV1Update) {
+      console.log('Using v1 account update...');
+      
+      // Convert v2 structure to v1 structure
+      const v1UpdateData = {};
+      
+      if (businessInfo.businessType) {
+        v1UpdateData.business_type = businessInfo.businessType;
+      }
+
+      if (businessInfo.businessType === 'individual' && businessInfo.firstName && businessInfo.lastName) {
+        v1UpdateData.individual = {
+          first_name: businessInfo.firstName,
+          last_name: businessInfo.lastName
+        };
+
+        if (businessInfo.email) {
+          v1UpdateData.individual.email = businessInfo.email;
+        }
+
+        if (businessInfo.phone) {
+          v1UpdateData.individual.phone = businessInfo.phone;
+        }
+
+        if (businessInfo.address && businessInfo.address.line1) {
+          v1UpdateData.individual.address = {
+            line1: businessInfo.address.line1,
+            city: businessInfo.address.city,
+            state: businessInfo.address.state,
+            postal_code: businessInfo.address.postal_code,
+            country: 'US'
+          };
+        }
+      }
+
+      if (businessInfo.businessType === 'company' && businessInfo.companyName) {
+        v1UpdateData.company = {
+          name: businessInfo.companyName
+        };
+        
+        if (businessInfo.taxId) {
+          v1UpdateData.company.tax_id = businessInfo.taxId;
+        }
+      }
+
+      console.log('V1 update data:', JSON.stringify(v1UpdateData, null, 2));
+
+      updatedAccount = await stripe.accounts.update(accountId, v1UpdateData);
+      console.log('Account updated with v1 API:', updatedAccount.id);
+    }
 
     // Store the business info in our database
     await pool.query(`
