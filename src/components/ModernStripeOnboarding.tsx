@@ -49,6 +49,11 @@ export default function ModernStripeOnboarding({ onClose }: ModernStripeOnboardi
     }, 1000);
   };
 
+  const handleEmbeddedError = (error: any) => {
+    console.error('Stripe embedded component error:', error);
+    setError(true);
+  };
+
   return (
     <div className="modal-overlay">
       <div className="modal stripe-onboarding-modal">
