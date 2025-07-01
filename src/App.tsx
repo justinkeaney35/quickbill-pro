@@ -607,14 +607,14 @@ function InvoicesTab({
                 </div>
                 <div className="notice-text">
                   <h3>Payment Processing Not Connected</h3>
-                  <p>Connect Stripe to start accepting payments on your invoices</p>
+                  <p>Setup payment collection to start accepting payments on your invoices</p>
                 </div>
               </div>
               <button 
                 className="setup-stripe-btn-new"
                 onClick={() => setSelectedInvoice({ id: 'stripe-setup' } as Invoice)}
               >
-                Connect Stripe
+Connect Payment Processing
               </button>
             </div>
           </div>
@@ -757,7 +757,7 @@ function InvoicesTab({
                   {!stripeConnected && (
                     <button 
                       className="action-btn disabled"
-                      title="Connect Stripe to enable payments"
+                      title="Setup payment processing to enable payments"
                     >
                       <Lock className="btn-icon" />
                       Setup Required
@@ -1503,7 +1503,7 @@ function InvoiceViewModal({
           {!stripeConnected && (
             <div className="setup-required">
               <Lock className="icon" />
-              <span>Connect Stripe to enable payments</span>
+              <span>Setup payment processing to enable payments</span>
             </div>
           )}
         </div>
