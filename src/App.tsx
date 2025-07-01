@@ -578,48 +578,62 @@ function InvoicesTab({
 
   return (
     <div className="invoices-tab-container">
-      <div className="invoices-header">
-        <div className="header-content">
-          <h1>Invoices</h1>
-          <p className="header-subtitle">
-            Manage your invoices and get paid faster with Stripe integration
-          </p>
+      <div className="invoices-header-new">
+        <div className="header-main">
+          <div className="header-text">
+            <h1 className="page-title">Invoices</h1>
+            <p className="page-subtitle">
+              Create, manage, and track your invoices with integrated payments
+            </p>
+          </div>
+          <div className="header-actions-new">
+            <button 
+              className="create-invoice-btn-new primary"
+              onClick={() => setShowCreateForm(true)}
+              disabled={!canCreateInvoice}
+            >
+              <PlusCircle size={18} />
+              Create Invoice
+            </button>
+          </div>
         </div>
-        <div className="header-actions">
-          {!stripeConnected && (
-            <div className="stripe-notice">
-              <div className="notice-icon">
-                <CreditCard size={20} />
+        
+        {!stripeConnected && (
+          <div className="stripe-notice-new">
+            <div className="notice-content">
+              <div className="notice-left">
+                <div className="notice-icon-new">
+                  <CreditCard size={24} />
+                </div>
+                <div className="notice-text">
+                  <h3>Payment Processing Not Connected</h3>
+                  <p>Connect Stripe to start accepting payments on your invoices</p>
+                </div>
               </div>
-              <span>Connect Stripe to accept payments</span>
               <button 
-                className="setup-stripe-btn"
+                className="setup-stripe-btn-new"
                 onClick={() => setSelectedInvoice({ id: 'stripe-setup' } as Invoice)}
               >
-                Setup Payments
+                Connect Stripe
               </button>
             </div>
-          )}
-          <button 
-            className="create-invoice-btn"
-            onClick={() => setShowCreateForm(true)}
-            disabled={!canCreateInvoice}
-          >
-            <PlusCircle className="btn-icon" />
-            Create Invoice
-          </button>
-        </div>
+          </div>
+        )}
       </div>
 
       {!canCreateInvoice && (
-        <div className="plan-limitation">
-          <div className="limitation-content">
-            <span className="limitation-icon">📊</span>
-            <div>
-              <h3>Monthly Limit Reached</h3>
-              <p>You've created {user.invoicesThisMonth} of {user.maxInvoices} invoices this month.</p>
+        <div className="plan-limitation-new">
+          <div className="limitation-content-new">
+            <div className="limitation-left">
+              <div className="limitation-icon-new">
+                <TrendingUp size={24} />
+              </div>
+              <div className="limitation-text">
+                <h3>Monthly Limit Reached</h3>
+                <p>You've created {user.invoicesThisMonth} of {user.maxInvoices} invoices this month. Upgrade to continue.</p>
+              </div>
             </div>
-            <button className="upgrade-btn" onClick={() => window.location.hash = 'pricing'}>
+            <button className="upgrade-btn-new" onClick={() => window.location.hash = 'pricing'}>
               Upgrade Plan
             </button>
           </div>
@@ -627,20 +641,24 @@ function InvoicesTab({
       )}
 
       {invoices.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-icon">
-            <FileText className="icon" />
+        <div className="empty-state-new">
+          <div className="empty-content">
+            <div className="empty-icon-new">
+              <FileText size={48} />
+            </div>
+            <h2 className="empty-title">No invoices yet</h2>
+            <p className="empty-description">
+              Create your first invoice to start getting paid faster with professional invoicing
+            </p>
+            <button 
+              className="create-first-btn-new"
+              onClick={() => setShowCreateForm(true)}
+              disabled={!canCreateInvoice}
+            >
+              <PlusCircle size={20} />
+              Create Your First Invoice
+            </button>
           </div>
-          <h3>No invoices yet</h3>
-          <p>Create your first invoice to start getting paid</p>
-          <button 
-            className="create-first-btn"
-            onClick={() => setShowCreateForm(true)}
-            disabled={!canCreateInvoice}
-          >
-            <PlusCircle className="btn-icon" />
-            Create Your First Invoice
-          </button>
         </div>
       ) : (
         <div className="invoices-container">
