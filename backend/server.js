@@ -1540,116 +1540,31 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
     
     const user = userResult.rows[0];
 
-    // Create Stripe Connect account using v2 API (based on official docs)
-    const accountData = {
-      defaults: {
-        responsibilities: {
-          losses_collector: 'stripe',
-          fees_collector: 'stripe',
+    // Create Stripe Connect account using modern embedded approach (from official sample)
+    console.log('Creating account with modern embedded approach...');
+    
+    // Use Connect test key for Connect operations
+    const connectStripe = require('stripe')(process.env.STRIPE_CONNECT_TEST_KEY || process.env.STRIPE_SECRET_KEY);
+    
+    const account = await connectStripe.accounts.create({
+      controller: {
+        stripe_dashboard: {
+          type: "none",
         },
       },
-      dashboard: 'full',
-      display_name: user.name || 'QuickBill User',
-      contact_email: user.email,
-      configuration: {
-        merchant: {
-          capabilities: {
-            card_payments: {
-              requested: true,
-            },
-          },
-        },
-        customer: {
-          capabilities: {
-            automatic_indirect_tax: {
-              requested: true,
-            },
-          },
-        },
+      capabilities: {
+        card_payments: {requested: true},
+        transfers: {requested: true}
       },
-      include: [
-        'configuration.merchant',
-        'configuration.recipient',
-        'identity',
-        'defaults',
-        'configuration.customer',
-      ],
-      identity: {
-        country: 'us',
-      },
-    };
-
-    console.log('Creating account with data:', JSON.stringify(accountData, null, 2));
-
-    // Try v2 API first, fallback to v1 if not available
-    let account;
-    let useV1Fallback = false;
-
-    try {
-      console.log('Attempting Stripe v2 API call...');
-      const response = await fetch('https://api.stripe.com/v2/core/accounts', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.STRIPE_CONNECT_TEST_KEY || process.env.STRIPE_SECRET_KEY}`,
-          'Stripe-Version': '2025-03-31.preview',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(accountData)
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Stripe v2 API error response:', {
-          status: response.status,
-          statusText: response.statusText,
-          body: errorText
-        });
-        
-        // If v2 API is not available, fallback to v1
-        if (response.status === 404 || response.status === 400) {
-          console.log('V2 API not available, falling back to v1...');
-          useV1Fallback = true;
-        } else {
-          let errorData;
-          try {
-            errorData = JSON.parse(errorText);
-          } catch (e) {
-            errorData = { error: { message: errorText } };
-          }
-          throw new Error(`Stripe API error (${response.status}): ${errorData.error?.message || errorText}`);
-        }
-      } else {
-        account = await response.json();
-        console.log('Created Stripe v2 account:', account.id);
+      country: "US",
+      email: user.email,
+      metadata: {
+        user_id: req.user.userId.toString(),
+        platform: 'quickbill_pro'
       }
-    } catch (error) {
-      console.log('V2 API failed, falling back to v1:', error.message);
-      useV1Fallback = true;
-    }
+    });
 
-    // Fallback to Stripe v1 API (Express accounts)
-    if (useV1Fallback) {
-      console.log('Using Stripe v1 Express account creation...');
-      
-      // Use Connect test key for Connect operations
-      const connectStripe = require('stripe')(process.env.STRIPE_CONNECT_TEST_KEY || process.env.STRIPE_SECRET_KEY);
-      
-      account = await connectStripe.accounts.create({
-        type: 'express',
-        email: user.email,
-        country: 'US',
-        capabilities: {
-          card_payments: { requested: true },
-          transfers: { requested: true },
-        },
-        business_type: 'individual', // Default to individual
-        metadata: {
-          user_id: req.user.userId.toString(),
-          platform: 'quickbill_pro'
-        }
-      });
-      console.log('Created Stripe v1 Express account:', account.id);
-    }
+    console.log('Created Stripe account:', account.id);
 
     // Save account to database
     await pool.query(`
@@ -1664,9 +1579,7 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
     console.log('Connect account saved to database');
 
     res.json({ 
-      accountId: account.id,
-      requirements: account.requirements,
-      status: account.requirements?.summary?.minimum_deadline?.status || 'pending',
+      account: account.id,
       message: 'Connect account created successfully' 
     });
 
