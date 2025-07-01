@@ -1481,6 +1481,7 @@ app.post('/api/connect/account-session', authenticateToken, async (req, res) => 
     }
 
     console.log('Creating account session for:', account);
+    console.log('Using Connect test key:', process.env.STRIPE_CONNECT_TEST_KEY ? 'YES' : 'NO');
 
     // Use Connect test key for Connect operations
     const connectStripe = require('stripe')(process.env.STRIPE_CONNECT_TEST_KEY || process.env.STRIPE_SECRET_KEY);
