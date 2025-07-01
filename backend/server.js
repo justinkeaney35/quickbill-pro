@@ -2891,6 +2891,36 @@ app.get('/api/admin/quick-delete-keanshoes', async (req, res) => {
   }
 });
 
+// Quick delete keanthrow user endpoint (TEMPORARY)
+app.get('/api/admin/quick-delete-keanthrow', async (req, res) => {
+  try {
+    const email = 'keanthrow@gmail.com';
+    
+    // Delete from connect_accounts first (foreign key constraint)
+    const userResult = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+    if (userResult.rows.length > 0) {
+      const userId = userResult.rows[0].id;
+      await pool.query('DELETE FROM connect_accounts WHERE user_id = $1', [userId]);
+    }
+
+    // Delete user
+    const result = await pool.query('DELETE FROM users WHERE email = $1 RETURNING *', [email]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({ 
+      message: 'User deleted successfully',
+      deletedUser: { email: result.rows[0].email, id: result.rows[0].id }
+    });
+
+  } catch (error) {
+    console.error('Delete user error:', error);
+    res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
