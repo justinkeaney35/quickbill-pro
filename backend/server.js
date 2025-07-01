@@ -1549,8 +1549,14 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
     const account = await connectStripe.accounts.create({
       controller: {
         stripe_dashboard: {
-          type: "none",
+          type: "express",
         },
+        fees: {
+          payer: "account"
+        },
+        losses: {
+          payments: "stripe"
+        }
       },
       capabilities: {
         card_payments: {requested: true},
