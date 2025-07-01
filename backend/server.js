@@ -1471,7 +1471,42 @@ app.get('/api/connect/debug', authenticateToken, async (req, res) => {
   }
 });
 
-// Create Connect account for user using Stripe API v2
+// Create Account Session for embedded Connect onboarding
+app.post('/api/connect/account-session', authenticateToken, async (req, res) => {
+  try {
+    const { account } = req.body;
+
+    if (!account) {
+      return res.status(400).json({ error: 'Account ID is required' });
+    }
+
+    console.log('Creating account session for:', account);
+
+    const accountSession = await stripe.accountSessions.create({
+      account: account,
+      components: {
+        account_onboarding: { enabled: true },
+        account_management: { enabled: true },
+        notification_banner: { enabled: true },
+      },
+    });
+
+    console.log('Account session created:', accountSession.id);
+
+    res.json({
+      client_secret: accountSession.client_secret,
+    });
+
+  } catch (error) {
+    console.error('Account session creation error:', error);
+    res.status(500).json({ 
+      error: 'Failed to create account session',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Please contact support'
+    });
+  }
+});
+
+// Create Connect account for user using modern embedded approach
 app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
   try {
     console.log('Creating Connect account v2 for user:', req.user.userId);
@@ -1486,33 +1521,10 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
       const accountId = existingAccount.rows[0].stripe_account_id;
       console.log('Account already exists:', accountId);
       
-      try {
-        // Get requirements for existing account
-        const response = await fetch(`https://api.stripe.com/v2/core/accounts/${accountId}`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
-            'Stripe-Version': '2025-03-31.preview',
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            include: ['requirements', 'configuration.merchant']
-          })
-        });
-        
-        if (response.ok) {
-          const account = await response.json();
-          return res.json({ 
-            accountId: accountId,
-            requirements: account.requirements,
-            status: account.requirements?.summary?.minimum_deadline?.status || 'pending',
-            message: 'Account already exists' 
-          });
-        }
-      } catch (error) {
-        console.log('Error retrieving existing account, creating new one');
-        await pool.query('DELETE FROM connect_accounts WHERE user_id = $1', [req.user.userId]);
-      }
+      return res.json({ 
+        account: accountId,
+        message: 'Account already exists' 
+      });
     }
 
     // Get user details
