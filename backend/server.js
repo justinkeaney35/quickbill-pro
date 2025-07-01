@@ -1549,6 +1549,7 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
     // Create account with minimal working configuration first
     console.log('Creating account with basic configuration...');
     console.log('Test key available:', !!process.env.STRIPE_CONNECT_TEST_KEY);
+    console.log('Test key first 10 chars:', process.env.STRIPE_CONNECT_TEST_KEY?.substring(0, 10));
     
     const account = await connectStripe.accounts.create({
       type: 'express',
