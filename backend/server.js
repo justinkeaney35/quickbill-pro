@@ -1546,24 +1546,18 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
     // Use Connect test key for Connect operations
     const connectStripe = require('stripe')(process.env.STRIPE_CONNECT_TEST_KEY || process.env.STRIPE_SECRET_KEY);
     
+    // Create account with minimal working configuration first
+    console.log('Creating account with basic configuration...');
+    console.log('Test key available:', !!process.env.STRIPE_CONNECT_TEST_KEY);
+    
     const account = await connectStripe.accounts.create({
-      controller: {
-        stripe_dashboard: {
-          type: "express",
-        },
-        fees: {
-          payer: "account"
-        },
-        losses: {
-          payments: "stripe"
-        }
-      },
+      type: 'express',
+      country: 'US',
+      email: user.email,
       capabilities: {
         card_payments: {requested: true},
         transfers: {requested: true}
       },
-      country: "US",
-      email: user.email,
       metadata: {
         user_id: req.user.userId.toString(),
         platform: 'quickbill_pro'
@@ -1591,10 +1585,19 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('Create Connect account error:', error);
+    console.error('Error details:', {
+      message: error.message,
+      type: error.type,
+      code: error.code,
+      param: error.param,
+      decline_code: error.decline_code
+    });
     
     res.status(500).json({ 
       error: 'Failed to create payment account',
-      details: process.env.NODE_ENV === 'development' ? error.message : 'Please contact support'
+      details: error.message || 'Please contact support',
+      errorType: error.type,
+      errorCode: error.code
     });
   }
 });
