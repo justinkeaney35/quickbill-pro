@@ -5,7 +5,7 @@ import { loadStripe } from '@stripe/stripe-js';
 import { Elements, EmbeddedCheckout as StripeEmbeddedCheckout, EmbeddedCheckoutProvider } from '@stripe/react-stripe-js';
 import { usePlaidLink } from 'react-plaid-link';
 import { authAPI, subscriptionsAPI, invoicesAPI, clientsAPI, connectAPI, payoutsAPI, plaidAPI } from './utils/api';
-import StripeOnboarding from './components/StripeOnboarding';
+import ModernStripeOnboarding from './components/ModernStripeOnboarding';
 import './App.css';
 
 // Initialize Stripe
@@ -795,7 +795,7 @@ Connect Payment Processing
       )}
 
       {selectedInvoice && selectedInvoice.id === 'stripe-setup' && (
-        <StripeOnboarding onClose={() => setSelectedInvoice(null)} />
+        <ModernStripeOnboarding onClose={() => setSelectedInvoice(null)} />
       )}
 
       {selectedInvoice && selectedInvoice.id !== 'stripe-setup' && (

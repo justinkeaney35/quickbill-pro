@@ -2549,6 +2549,81 @@ body {
   transform: translateY(-1px);
 }
 
+/* Modern Stripe Embedded Onboarding Styles */
+.embedded-onboarding {
+  margin-top: 2rem;
+  min-height: 400px;
+}
+
+.loading-state,
+.error-state,
+.success-state {
+  text-align: center;
+  padding: 2rem;
+}
+
+.loading-state p {
+  color: #6b7280;
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.error-state {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  margin-top: 1rem;
+}
+
+.error-message {
+  color: #dc2626;
+  font-weight: 500;
+  margin: 0;
+}
+
+.success-state {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  margin-top: 1rem;
+}
+
+.success-icon {
+  color: #059669;
+  margin-bottom: 1rem;
+  width: 48px;
+  height: 48px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.success-state h3 {
+  color: #065f46;
+  margin-bottom: 0.5rem;
+}
+
+.success-state p {
+  color: #047857;
+  margin: 0;
+}
+
+.dev-info {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-top: 1rem;
+  font-size: 0.875rem;
+}
+
+.dev-info code {
+  background: #e2e8f0;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+  font-size: 0.8rem;
+}
+
 /* Settings Tab */
 .payout-settings-section {
   max-width: 800px;

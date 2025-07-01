@@ -190,6 +190,11 @@ export const connectAPI = {
     return response.data;
   },
 
+  createAccountSession: async (accountId: string) => {
+    const response = await api.post('/connect/account-session', { account: accountId });
+    return response.data;
+  },
+
   createAccountLink: async (accountId: string) => {
     const response = await api.post('/connect/create-account-link', { accountId });
     return response.data;
