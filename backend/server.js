@@ -1482,7 +1482,10 @@ app.post('/api/connect/account-session', authenticateToken, async (req, res) => 
 
     console.log('Creating account session for:', account);
 
-    const accountSession = await stripe.accountSessions.create({
+    // Use Connect test key for Connect operations
+    const connectStripe = require('stripe')(process.env.STRIPE_CONNECT_TEST_KEY || process.env.STRIPE_SECRET_KEY);
+
+    const accountSession = await connectStripe.accountSessions.create({
       account: account,
       components: {
         account_onboarding: { enabled: true },
@@ -1586,7 +1589,7 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
       const response = await fetch('https://api.stripe.com/v2/core/accounts', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+          'Authorization': `Bearer ${process.env.STRIPE_CONNECT_TEST_KEY || process.env.STRIPE_SECRET_KEY}`,
           'Stripe-Version': '2025-03-31.preview',
           'Content-Type': 'application/json'
         },
@@ -1626,7 +1629,11 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
     // Fallback to Stripe v1 API (Express accounts)
     if (useV1Fallback) {
       console.log('Using Stripe v1 Express account creation...');
-      account = await stripe.accounts.create({
+      
+      // Use Connect test key for Connect operations
+      const connectStripe = require('stripe')(process.env.STRIPE_CONNECT_TEST_KEY || process.env.STRIPE_SECRET_KEY);
+      
+      account = await connectStripe.accounts.create({
         type: 'express',
         email: user.email,
         country: 'US',
@@ -1954,7 +1961,8 @@ app.post('/api/connect/update-bank-account', authenticateToken, async (req, res)
       
       try {
         // Create a Setup Intent for the customer account to collect bank account info
-        const setupIntent = await stripe.setupIntents.create({
+        const connectStripe = require('stripe')(process.env.STRIPE_CONNECT_TEST_KEY || process.env.STRIPE_SECRET_KEY);
+        const setupIntent = await connectStripe.setupIntents.create({
           customer_account: accountId,
           payment_method_types: ['us_bank_account'],
           confirm: true,
@@ -1998,7 +2006,8 @@ app.post('/api/connect/update-bank-account', authenticateToken, async (req, res)
       // Fallback to v1 external account method
       console.log('Creating external account with v1 API...');
       
-      const externalAccount = await stripe.accounts.createExternalAccount(accountId, {
+      const connectStripe = require('stripe')(process.env.STRIPE_CONNECT_TEST_KEY || process.env.STRIPE_SECRET_KEY);
+      const externalAccount = await connectStripe.accounts.createExternalAccount(accountId, {
         external_account: {
           object: 'bank_account',
           country: 'US',
@@ -2043,7 +2052,8 @@ app.get('/api/connect/account-status', authenticateToken, async (req, res) => {
     const dbAccount = accountResult.rows[0];
     
     // Get latest status from Stripe
-    const stripeAccount = await stripe.accounts.retrieve(dbAccount.stripe_account_id);
+    const connectStripe = require('stripe')(process.env.STRIPE_CONNECT_TEST_KEY || process.env.STRIPE_SECRET_KEY);
+    const stripeAccount = await connectStripe.accounts.retrieve(dbAccount.stripe_account_id);
 
     // Update database with latest status
     await pool.query(`
