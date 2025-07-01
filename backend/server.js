@@ -1524,40 +1524,43 @@ app.post('/api/connect/create-account', authenticateToken, async (req, res) => {
     
     const user = userResult.rows[0];
 
-    // Create Stripe Connect account using v2 API
+    // Create Stripe Connect account using v2 API (based on official docs)
     const accountData = {
-      contact_email: user.email,
-      display_name: user.name || 'QuickBill User',
-      dashboard: 'none',
-      identity: {
-        country: 'us',
-        entity_type: 'individual' // Start with individual, can be updated
+      defaults: {
+        responsibilities: {
+          losses_collector: 'stripe',
+          fees_collector: 'stripe',
+        },
       },
+      dashboard: 'full',
+      display_name: user.name || 'QuickBill User',
+      contact_email: user.email,
       configuration: {
         merchant: {
           capabilities: {
             card_payments: {
-              requested: true
+              requested: true,
             },
-            transfers: {
-              requested: true
-            }
-          }
-        }
-      },
-      defaults: {
-        currency: 'usd',
-        responsibilities: {
-          fees_collector: 'application',
-          losses_collector: 'application'
+          },
         },
-        locales: ['en-US']
+        customer: {
+          capabilities: {
+            automatic_indirect_tax: {
+              requested: true,
+            },
+          },
+        },
       },
       include: [
         'configuration.merchant',
+        'configuration.recipient',
         'identity',
-        'requirements'
-      ]
+        'defaults',
+        'configuration.customer',
+      ],
+      identity: {
+        country: 'us',
+      },
     };
 
     console.log('Creating account with data:', JSON.stringify(accountData, null, 2));
@@ -1902,34 +1905,114 @@ app.post('/api/connect/update-bank-account', authenticateToken, async (req, res)
   try {
     const { accountId, bankInfo } = req.body;
     
+    console.log('Adding bank account for Connect account:', accountId);
+    console.log('Bank info received:', JSON.stringify(bankInfo, null, 2));
+    
     if (!accountId) {
       return res.status(400).json({ error: 'Account ID is required' });
     }
 
-    // Create external account (bank account) for payouts
-    const externalAccount = await stripe.accounts.createExternalAccount(accountId, {
-      external_account: {
-        object: 'bank_account',
-        country: 'US',
-        currency: 'usd',
-        routing_number: bankInfo.routingNumber,
-        account_number: bankInfo.accountNumber,
-        account_holder_type: bankInfo.accountHolderType || 'individual'
+    if (!bankInfo.routingNumber || !bankInfo.accountNumber) {
+      return res.status(400).json({ error: 'Routing number and account number are required' });
+    }
+
+    // First check if account was created with v2 API by trying to retrieve it
+    let isV2Account = false;
+    try {
+      const v2Response = await fetch(`https://api.stripe.com/v2/core/accounts/${accountId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+          'Stripe-Version': '2025-03-31.preview',
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (v2Response.ok) {
+        isV2Account = true;
+        console.log('Account detected as v2 API account');
       }
-    });
-    
-    res.json({ 
-      success: true,
-      external_account_id: externalAccount.id,
-      message: 'Bank account added successfully'
-    });
+    } catch (error) {
+      console.log('Account is not v2 API, using v1 approach');
+    }
+
+    if (isV2Account) {
+      // For v2 accounts, we need to use Setup Intents with payment methods
+      console.log('Creating Setup Intent for v2 account...');
+      
+      try {
+        // Create a Setup Intent for the customer account to collect bank account info
+        const setupIntent = await stripe.setupIntents.create({
+          customer_account: accountId,
+          payment_method_types: ['us_bank_account'],
+          confirm: true,
+          usage: 'off_session',
+          payment_method_data: {
+            type: 'us_bank_account',
+            us_bank_account: {
+              routing_number: bankInfo.routingNumber,
+              account_number: bankInfo.accountNumber,
+              account_holder_type: bankInfo.accountHolderType || 'individual',
+              account_type: 'checking'
+            }
+          }
+        });
+
+        console.log('Setup Intent created:', setupIntent.id);
+        
+        res.json({ 
+          success: true,
+          setup_intent_id: setupIntent.id,
+          payment_method_id: setupIntent.payment_method,
+          message: 'Bank account added successfully using v2 API'
+        });
+
+      } catch (v2Error) {
+        console.error('V2 Setup Intent failed:', v2Error);
+        
+        // If v2 Setup Intent fails, fallback to v1 external account
+        console.log('Falling back to v1 external account method...');
+        throw v2Error; // This will trigger the v1 fallback below
+      }
+    } else {
+      // Use v1 API fallback
+      throw new Error('Using v1 fallback');
+    }
 
   } catch (error) {
-    console.error('Update bank account error:', error);
-    res.status(500).json({ 
-      error: 'Failed to add bank account',
-      details: error.message
-    });
+    console.log('Using v1 external account fallback:', error.message);
+    
+    try {
+      // Fallback to v1 external account method
+      console.log('Creating external account with v1 API...');
+      
+      const externalAccount = await stripe.accounts.createExternalAccount(accountId, {
+        external_account: {
+          object: 'bank_account',
+          country: 'US',
+          currency: 'usd',
+          routing_number: bankInfo.routingNumber,
+          account_number: bankInfo.accountNumber,
+          account_holder_type: bankInfo.accountHolderType || 'individual'
+        }
+      });
+      
+      console.log('External account created:', externalAccount.id);
+      
+      res.json({ 
+        success: true,
+        external_account_id: externalAccount.id,
+        message: 'Bank account added successfully using v1 API'
+      });
+
+    } catch (v1Error) {
+      console.error('Both v2 and v1 bank account creation failed:', v1Error);
+      
+      res.status(500).json({ 
+        error: 'Failed to add bank account',
+        details: process.env.NODE_ENV === 'development' ? v1Error.message : 'Please check your bank account information and try again'
+      });
+    }
   }
 });
 
