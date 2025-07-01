@@ -2921,6 +2921,25 @@ app.get('/api/admin/quick-delete-keanthrow', async (req, res) => {
   }
 });
 
+// Delete existing Connect account to force fresh creation (TEMPORARY)
+app.get('/api/admin/reset-connect-account/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Delete the existing connect account
+    const result = await pool.query('DELETE FROM connect_accounts WHERE user_id = $1 RETURNING *', [userId]);
+    
+    res.json({ 
+      message: 'Connect account reset successfully',
+      deletedAccount: result.rows[0] || null
+    });
+
+  } catch (error) {
+    console.error('Reset connect account error:', error);
+    res.status(500).json({ error: 'Failed to reset connect account' });
+  }
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
