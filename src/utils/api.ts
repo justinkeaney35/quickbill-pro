@@ -252,6 +252,23 @@ export const payoutsAPI = {
     const response = await api.post('/admin/process-payouts');
     return response.data;
   },
+
+  getStripePayouts: async () => {
+    const response = await api.get('/connect/payouts');
+    return response.data;
+  },
+
+  getPayoutAnalytics: async (period: string = '30d') => {
+    const response = await api.get(`/connect/payout-analytics?period=${period}`);
+    return response.data;
+  },
+
+  exportPayouts: async (format: 'csv' | 'pdf' = 'csv', period: string = '30d') => {
+    const response = await api.get(`/connect/export-payouts?format=${format}&period=${period}`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
 };
 
 // Plaid API

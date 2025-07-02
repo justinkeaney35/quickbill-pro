@@ -7,6 +7,7 @@ import { usePlaidLink } from 'react-plaid-link';
 import { authAPI, subscriptionsAPI, invoicesAPI, clientsAPI, connectAPI, payoutsAPI, plaidAPI } from './utils/api';
 import ModernStripeOnboarding from './components/ModernStripeOnboarding';
 import StripeEmbeddedDashboard from './components/StripeEmbeddedDashboard';
+import EnhancedPayoutsTab from './components/EnhancedPayoutsTab';
 import './App.css';
 
 // Initialize Stripe
@@ -425,7 +426,7 @@ function App() {
             {activeTab === 'invoices' && user && <InvoicesTab invoices={invoices} setInvoices={setInvoices} user={user} setUser={setUser} clients={clients} />}
             {activeTab === 'clients' && <ClientsTab clients={clients} setClients={setClients} />}
             {activeTab === 'payments' && user && <PaymentsTab user={user} />}
-            {activeTab === 'payouts' && user && <PayoutsTab user={user} />}
+            {activeTab === 'payouts' && user && <EnhancedPayoutsTab user={user} />}
             {activeTab === 'pricing' && user && <PricingTab user={user} />}
             {activeTab === 'settings' && user && <SettingsTab user={user} setUser={setUser} />}
           </main>

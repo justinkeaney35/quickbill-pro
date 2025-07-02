@@ -2951,6 +2951,229 @@ app.get('/api/admin/reset-connect-account/:userId', async (req, res) => {
   }
 });
 
+// ENHANCED PAYOUTS ROUTES
+
+// Get Stripe payouts for connected account
+app.get('/api/connect/payouts', authenticateToken, async (req, res) => {
+  try {
+    const accountResult = await pool.query(
+      'SELECT stripe_account_id FROM connect_accounts WHERE user_id = $1',
+      [req.user.userId]
+    );
+
+    if (accountResult.rows.length === 0) {
+      return res.json({ payouts: [], balance: null });
+    }
+
+    const stripeAccountId = accountResult.rows[0].stripe_account_id;
+    
+    // Use Connect test key for Connect operations
+    const connectStripe = require('stripe')(process.env.STRIPE_CONNECT_TEST_KEY || process.env.STRIPE_SECRET_KEY);
+
+    // Fetch payouts from Stripe
+    const payouts = await connectStripe.payouts.list(
+      { limit: 100 },
+      { stripeAccount: stripeAccountId }
+    );
+
+    // Fetch balance from Stripe
+    const balance = await connectStripe.balance.retrieve({
+      stripeAccount: stripeAccountId
+    });
+
+    res.json({
+      payouts: payouts.data,
+      balance: balance
+    });
+
+  } catch (error) {
+    console.error('Get Stripe payouts error:', error);
+    res.status(500).json({ error: 'Failed to fetch payouts' });
+  }
+});
+
+// Get payout analytics
+app.get('/api/connect/payout-analytics', authenticateToken, async (req, res) => {
+  try {
+    const { period = '30d' } = req.query;
+    
+    const accountResult = await pool.query(
+      'SELECT stripe_account_id FROM connect_accounts WHERE user_id = $1',
+      [req.user.userId]
+    );
+
+    if (accountResult.rows.length === 0) {
+      return res.json({
+        totalAmount: 0,
+        totalCount: 0,
+        avgAmount: 0,
+        successRate: 0,
+        periodComparison: { amount: 0, count: 0, percentChange: 0 },
+        statusBreakdown: { paid: 0, pending: 0, failed: 0 },
+        monthlyTrend: []
+      });
+    }
+
+    const stripeAccountId = accountResult.rows[0].stripe_account_id;
+    const connectStripe = require('stripe')(process.env.STRIPE_CONNECT_TEST_KEY || process.env.STRIPE_SECRET_KEY);
+
+    // Calculate date range based on period
+    const now = new Date();
+    let startDate = new Date();
+    
+    switch (period) {
+      case '7d':
+        startDate.setDate(now.getDate() - 7);
+        break;
+      case '30d':
+        startDate.setDate(now.getDate() - 30);
+        break;
+      case '90d':
+        startDate.setDate(now.getDate() - 90);
+        break;
+      case '1y':
+        startDate.setFullYear(now.getFullYear() - 1);
+        break;
+      default:
+        startDate.setDate(now.getDate() - 30);
+    }
+
+    // Fetch payouts for the period
+    const payouts = await connectStripe.payouts.list(
+      { 
+        created: { gte: Math.floor(startDate.getTime() / 1000) },
+        limit: 100 
+      },
+      { stripeAccount: stripeAccountId }
+    );
+
+    // Calculate analytics
+    const totalAmount = payouts.data.reduce((sum, payout) => sum + payout.amount, 0);
+    const totalCount = payouts.data.length;
+    const avgAmount = totalCount > 0 ? totalAmount / totalCount : 0;
+    
+    const statusBreakdown = payouts.data.reduce((acc, payout) => {
+      acc[payout.status] = (acc[payout.status] || 0) + 1;
+      return acc;
+    }, {});
+
+    const successRate = totalCount > 0 ? ((statusBreakdown.paid || 0) / totalCount) * 100 : 0;
+
+    // For period comparison, fetch previous period data
+    const prevStartDate = new Date(startDate);
+    const periodDiff = now.getTime() - startDate.getTime();
+    prevStartDate.setTime(startDate.getTime() - periodDiff);
+
+    const prevPayouts = await connectStripe.payouts.list(
+      { 
+        created: { 
+          gte: Math.floor(prevStartDate.getTime() / 1000),
+          lt: Math.floor(startDate.getTime() / 1000)
+        },
+        limit: 100 
+      },
+      { stripeAccount: stripeAccountId }
+    );
+
+    const prevTotalAmount = prevPayouts.data.reduce((sum, payout) => sum + payout.amount, 0);
+    const prevTotalCount = prevPayouts.data.length;
+    
+    const amountPercentChange = prevTotalAmount > 0 
+      ? ((totalAmount - prevTotalAmount) / prevTotalAmount) * 100 
+      : 0;
+
+    res.json({
+      totalAmount,
+      totalCount,
+      avgAmount,
+      successRate,
+      periodComparison: {
+        amount: prevTotalAmount,
+        count: prevTotalCount,
+        percentChange: amountPercentChange
+      },
+      statusBreakdown: {
+        paid: statusBreakdown.paid || 0,
+        pending: (statusBreakdown.pending || 0) + (statusBreakdown.in_transit || 0),
+        failed: (statusBreakdown.failed || 0) + (statusBreakdown.canceled || 0)
+      },
+      monthlyTrend: [] // Could implement this if needed
+    });
+
+  } catch (error) {
+    console.error('Get payout analytics error:', error);
+    res.status(500).json({ error: 'Failed to get analytics' });
+  }
+});
+
+// Export payouts data
+app.get('/api/connect/export-payouts', authenticateToken, async (req, res) => {
+  try {
+    const { format = 'csv', period = '30d' } = req.query;
+    
+    const accountResult = await pool.query(
+      'SELECT stripe_account_id FROM connect_accounts WHERE user_id = $1',
+      [req.user.userId]
+    );
+
+    if (accountResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No Stripe account found' });
+    }
+
+    const stripeAccountId = accountResult.rows[0].stripe_account_id;
+    const connectStripe = require('stripe')(process.env.STRIPE_CONNECT_TEST_KEY || process.env.STRIPE_SECRET_KEY);
+
+    // Calculate date range
+    const now = new Date();
+    let startDate = new Date();
+    
+    switch (period) {
+      case '7d':
+        startDate.setDate(now.getDate() - 7);
+        break;
+      case '30d':
+        startDate.setDate(now.getDate() - 30);
+        break;
+      case '90d':
+        startDate.setDate(now.getDate() - 90);
+        break;
+      case '1y':
+        startDate.setFullYear(now.getFullYear() - 1);
+        break;
+    }
+
+    const payouts = await connectStripe.payouts.list(
+      { 
+        created: { gte: Math.floor(startDate.getTime() / 1000) },
+        limit: 100 
+      },
+      { stripeAccount: stripeAccountId }
+    );
+
+    if (format === 'csv') {
+      const csvHeader = 'Date,Amount,Currency,Status,Type,Method,Arrival Date\n';
+      const csvData = payouts.data.map(payout => {
+        const date = new Date(payout.created * 1000).toISOString().split('T')[0];
+        const arrivalDate = new Date(payout.arrival_date * 1000).toISOString().split('T')[0];
+        const amount = (payout.amount / 100).toFixed(2);
+        
+        return `${date},${amount},${payout.currency.toUpperCase()},${payout.status},${payout.type},${payout.method},${arrivalDate}`;
+      }).join('\n');
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=payouts-${period}.csv`);
+      res.send(csvHeader + csvData);
+    } else {
+      // For now, just return JSON for PDF (could implement PDF generation later)
+      res.json(payouts.data);
+    }
+
+  } catch (error) {
+    console.error('Export payouts error:', error);
+    res.status(500).json({ error: 'Failed to export payouts' });
+  }
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
