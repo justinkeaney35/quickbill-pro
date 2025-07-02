@@ -5295,7 +5295,6 @@ body {
     padding: 1rem;
   }
 }
-EOF < /dev/null
 /* Dashboard and Manage Buttons */
 .connected-actions {
   display: flex;
@@ -5356,4 +5355,3 @@ EOF < /dev/null
     justify-content: center;
   }
 }
-EOF < /dev/null
