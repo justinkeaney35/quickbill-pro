@@ -2115,9 +2115,12 @@ function PaymentsTab({ user }: { user: User }) {
     const checkStripeConnectStatus = async () => {
       try {
         const response = await connectAPI.getAccountStatus();
-        if (response.connected && response.account_id) {
+        console.log('Payments Stripe Connect status response:', response);
+        
+        // Check if account exists and is properly configured
+        if (response.status === 'active' && response.accountId && response.details_submitted && response.charges_enabled) {
           setStripeConnected(true);
-          setStripeConnectAccount(response.account_id);
+          setStripeConnectAccount(response.accountId);
         } else {
           setStripeConnected(false);
           setStripeConnectAccount(null);
@@ -2159,10 +2162,10 @@ function PaymentsTab({ user }: { user: User }) {
             <div className="setup-icon">
               <TrendingUp size={48} />
             </div>
-            <h2>Connect Stripe to Access Payment Dashboard</h2>
+            <h2>Unlock Your Complete Payment Dashboard</h2>
             <p>
-              You need to connect your Stripe account to access the payment dashboard. 
-              This will allow you to view payments, manage payouts, and access detailed analytics.
+              Connect your Stripe account to unlock powerful payment management tools. 
+              Get real-time insights, track every transaction, and manage your cash flow with confidence.
             </p>
             
             <div className="setup-benefits">
@@ -2170,25 +2173,25 @@ function PaymentsTab({ user }: { user: User }) {
                 <div className="benefit-icon">
                   <CreditCard size={20} />
                 </div>
-                <span>View all payment transactions</span>
+                <span>Monitor all payment transactions in real-time</span>
               </div>
               <div className="benefit-item">
                 <div className="benefit-icon">
                   <DollarSign size={20} />
                 </div>
-                <span>Track balances and payouts</span>
+                <span>Track account balances and automatic payouts</span>
               </div>
               <div className="benefit-item">
                 <div className="benefit-icon">
                   <TrendingUp size={20} />
                 </div>
-                <span>Access detailed analytics</span>
+                <span>Get detailed revenue analytics and insights</span>
               </div>
               <div className="benefit-item">
                 <div className="benefit-icon">
                   <FileText size={20} />
                 </div>
-                <span>Download tax documents</span>
+                <span>Download tax forms and financial reports</span>
               </div>
             </div>
 
@@ -2287,9 +2290,15 @@ function SettingsTab({
     const checkStripeConnectStatus = async () => {
       try {
         const response = await connectAPI.getAccountStatus();
-        if (response.connected && response.account_id) {
+        console.log('Settings Stripe Connect status response:', response);
+        
+        // Check if account exists and is active
+        if (response.status === 'active' && response.accountId && response.details_submitted) {
           setStripeConnected(true);
-          setStripeConnectAccount(response.account_id);
+          setStripeConnectAccount(response.accountId);
+        } else {
+          setStripeConnected(false);
+          setStripeConnectAccount(null);
         }
       } catch (error) {
         console.error('Error checking Stripe Connect status:', error);
