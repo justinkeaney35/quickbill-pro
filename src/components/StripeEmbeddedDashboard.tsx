@@ -81,22 +81,30 @@ export default function StripeEmbeddedDashboard({
   useEffect(() => {
     const initializeStripeConnect = async () => {
       try {
+        console.log('Initializing Stripe Connect for account:', connectedAccountId);
+        
+        // Create account session once
+        const response = await fetch(`${process.env.REACT_APP_API_URL}/api/connect/account-session`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('quickbill_token')}`
+          },
+          body: JSON.stringify({ account: connectedAccountId })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('Account session API error:', errorData);
+          throw new Error(errorData.error || 'Failed to create account session');
+        }
+
+        const { client_secret } = await response.json();
+        console.log('Account session created successfully');
+
+        // Store client secret and use it for fetchClientSecret
         const fetchClientSecret = async () => {
-          const response = await fetch(`${process.env.REACT_APP_API_URL}/api/connect/account-session`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('quickbill_token')}`
-            },
-            body: JSON.stringify({ account: connectedAccountId })
-          });
-
-          if (!response.ok) {
-            const { error } = await response.json();
-            throw new Error(error || 'Failed to create account session');
-          }
-
-          const { client_secret } = await response.json();
+          console.log('Returning stored client secret');
           return client_secret;
         };
 
@@ -118,6 +126,7 @@ export default function StripeEmbeddedDashboard({
           locale: 'en-US',
         });
 
+        console.log('Stripe Connect instance initialized successfully');
         setStripeConnectInstance(instance);
         setLoading(false);
       } catch (err: any) {
@@ -197,10 +206,60 @@ export default function StripeEmbeddedDashboard({
             </button>
           )}
           <button 
-            onClick={() => window.location.reload()} 
+            onClick={() => {
+              setError('');
+              setLoading(true);
+              // Retry initialization
+              const retryInit = async () => {
+                try {
+                  const response = await fetch(`${process.env.REACT_APP_API_URL}/api/connect/account-session`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${localStorage.getItem('quickbill_token')}`
+                    },
+                    body: JSON.stringify({ account: connectedAccountId })
+                  });
+
+                  if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to create account session');
+                  }
+
+                  const { client_secret } = await response.json();
+                  const fetchClientSecret = async () => client_secret;
+
+                  const instance = await loadConnectAndInitialize({
+                    publishableKey: process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY!,
+                    fetchClientSecret: fetchClientSecret,
+                    appearance: {
+                      overlays: 'dialog',
+                      variables: {
+                        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                        colorPrimary: '#667eea',
+                        colorBackground: '#ffffff',
+                        colorText: '#1a202c',
+                        colorDanger: '#e53e3e',
+                        spacingUnit: '6px',
+                        borderRadius: '8px',
+                      },
+                    },
+                    locale: 'en-US',
+                  });
+
+                  setStripeConnectInstance(instance);
+                  setLoading(false);
+                } catch (err: any) {
+                  console.error('Retry failed:', err);
+                  setError(err.message || 'Failed to initialize dashboard');
+                  setLoading(false);
+                }
+              };
+              retryInit();
+            }} 
             className="primary-btn"
           >
-            Retry
+            Retry Connection
           </button>
         </div>
       </div>
