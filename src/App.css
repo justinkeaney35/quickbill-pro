@@ -5355,3 +5355,175 @@ body {
     justify-content: center;
   }
 }
+
+/* Payments Tab Styles */
+.payments-tab {
+  width: 100%;
+  height: 100%;
+}
+
+.setup-required {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+}
+
+.setup-card {
+  background: white;
+  border-radius: 1rem;
+  padding: 3rem;
+  max-width: 600px;
+  text-align: center;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e2e8f0;
+}
+
+.setup-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 5rem;
+  height: 5rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 1rem;
+  margin: 0 auto 2rem auto;
+  color: white;
+}
+
+.setup-card h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #1a202c;
+  margin-bottom: 1rem;
+}
+
+.setup-card p {
+  font-size: 1.1rem;
+  color: #6b7280;
+  margin-bottom: 2rem;
+  line-height: 1.6;
+}
+
+.setup-benefits {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+  margin: 2rem 0;
+  text-align: left;
+}
+
+.benefit-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: #f8fafc;
+  border-radius: 0.5rem;
+  border: 1px solid #e2e8f0;
+}
+
+.benefit-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  background: rgba(102, 126, 234, 0.1);
+  border-radius: 0.5rem;
+  color: #667eea;
+  flex-shrink: 0;
+}
+
+.setup-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin-top: 2rem;
+}
+
+.connect-stripe-btn, .learn-more-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+  text-decoration: none;
+}
+
+.connect-stripe-btn.primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.connect-stripe-btn.primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.learn-more-btn.secondary {
+  background: transparent;
+  color: #667eea;
+  border: 2px solid #667eea;
+}
+
+.learn-more-btn.secondary:hover {
+  background: #667eea;
+  color: white;
+  transform: translateY(-1px);
+}
+
+/* Stripe Dashboard Full Page Mode */
+.stripe-dashboard-fullpage {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.stripe-dashboard-fullpage .dashboard-content {
+  flex: 1;
+  height: calc(100vh - 200px);
+  min-height: 600px;
+}
+
+.stripe-dashboard-fullpage .dashboard-sidebar {
+  width: 280px;
+  height: 100%;
+}
+
+.stripe-dashboard-fullpage .dashboard-main {
+  flex: 1;
+  height: 100%;
+}
+
+.stripe-dashboard-fullpage .embedded-component-container {
+  height: calc(100% - 80px);
+  overflow-y: auto;
+}
+
+@media (max-width: 768px) {
+  .setup-card {
+    padding: 2rem;
+    margin: 1rem;
+  }
+  
+  .setup-actions {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  
+  .connect-stripe-btn, .learn-more-btn {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  .setup-benefits {
+    grid-template-columns: 1fr;
+  }
+}
+EOF < /dev/null

@@ -390,6 +390,13 @@ function App() {
                 <span>Clients</span>
               </button>
               <button 
+                className={`nav-item ${activeTab === 'payments' ? 'active' : ''}`}
+                onClick={() => setActiveTab('payments')}
+              >
+                <TrendingUp size={20} />
+                <span>Payments</span>
+              </button>
+              <button 
                 className={`nav-item ${activeTab === 'payouts' ? 'active' : ''}`}
                 onClick={() => setActiveTab('payouts')}
               >
@@ -417,6 +424,7 @@ function App() {
             {activeTab === 'dashboard' && user && <Dashboard user={user} invoices={invoices} />}
             {activeTab === 'invoices' && user && <InvoicesTab invoices={invoices} setInvoices={setInvoices} user={user} setUser={setUser} clients={clients} />}
             {activeTab === 'clients' && <ClientsTab clients={clients} setClients={setClients} />}
+            {activeTab === 'payments' && user && <PaymentsTab user={user} />}
             {activeTab === 'payouts' && user && <PayoutsTab user={user} />}
             {activeTab === 'pricing' && user && <PricingTab user={user} />}
             {activeTab === 'settings' && user && <SettingsTab user={user} setUser={setUser} />}
@@ -2091,6 +2099,143 @@ function PayoutsTab({ user }: { user: User }) {
         {activeSubTab === 'history' && renderHistoryTab()}
         {activeSubTab === 'settings' && renderSettingsTab()}
       </div>
+    </div>
+  );
+}
+
+// Payments Tab
+function PaymentsTab({ user }: { user: User }) {
+  const [stripeConnectAccount, setStripeConnectAccount] = useState<string | null>(null);
+  const [stripeConnected, setStripeConnected] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  // Check Stripe Connect status
+  useEffect(() => {
+    const checkStripeConnectStatus = async () => {
+      try {
+        const response = await connectAPI.getAccountStatus();
+        if (response.connected && response.account_id) {
+          setStripeConnected(true);
+          setStripeConnectAccount(response.account_id);
+        } else {
+          setStripeConnected(false);
+          setStripeConnectAccount(null);
+        }
+      } catch (error) {
+        console.error('Error checking Stripe Connect status:', error);
+        setStripeConnected(false);
+        setStripeConnectAccount(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkStripeConnectStatus();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="payments-tab">
+        <div className="loading-container">
+          <div className="loading-spinner"></div>
+          <h3>Loading payment dashboard...</h3>
+          <p>Checking your Stripe Connect status</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!stripeConnected || !stripeConnectAccount) {
+    return (
+      <div className="payments-tab">
+        <div className="tab-header">
+          <h1>Payment Dashboard</h1>
+          <p>Manage your payments, payouts, and analytics</p>
+        </div>
+
+        <div className="setup-required">
+          <div className="setup-card">
+            <div className="setup-icon">
+              <TrendingUp size={48} />
+            </div>
+            <h2>Connect Stripe to Access Payment Dashboard</h2>
+            <p>
+              You need to connect your Stripe account to access the payment dashboard. 
+              This will allow you to view payments, manage payouts, and access detailed analytics.
+            </p>
+            
+            <div className="setup-benefits">
+              <div className="benefit-item">
+                <div className="benefit-icon">
+                  <CreditCard size={20} />
+                </div>
+                <span>View all payment transactions</span>
+              </div>
+              <div className="benefit-item">
+                <div className="benefit-icon">
+                  <DollarSign size={20} />
+                </div>
+                <span>Track balances and payouts</span>
+              </div>
+              <div className="benefit-item">
+                <div className="benefit-icon">
+                  <TrendingUp size={20} />
+                </div>
+                <span>Access detailed analytics</span>
+              </div>
+              <div className="benefit-item">
+                <div className="benefit-icon">
+                  <FileText size={20} />
+                </div>
+                <span>Download tax documents</span>
+              </div>
+            </div>
+
+            <div className="setup-actions">
+              <button 
+                className="connect-stripe-btn primary"
+                onClick={() => setShowOnboarding(true)}
+              >
+                <CreditCard size={20} />
+                Connect Stripe Account
+              </button>
+              <button 
+                className="learn-more-btn secondary"
+                onClick={() => window.open('https://stripe.com/connect', '_blank')}
+              >
+                <ExternalLink size={20} />
+                Learn More About Stripe
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {showOnboarding && (
+          <ModernStripeOnboarding 
+            onClose={() => {
+              setShowOnboarding(false);
+              // Refresh the page to update status
+              window.location.reload();
+            }}
+          />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="payments-tab">
+      <div className="tab-header">
+        <h1>Payment Dashboard</h1>
+        <p>Manage your payments, payouts, and analytics</p>
+      </div>
+
+      <StripeEmbeddedDashboard
+        connectedAccountId={stripeConnectAccount}
+        onClose={() => {}}
+        fullPage={true}
+      />
     </div>
   );
 }

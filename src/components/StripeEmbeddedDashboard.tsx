@@ -23,6 +23,7 @@ import {
 interface StripeEmbeddedDashboardProps {
   onClose: () => void;
   connectedAccountId: string;
+  fullPage?: boolean;
 }
 
 type TabType = 'payments' | 'payouts' | 'balances' | 'documents' | 'settings';
@@ -36,7 +37,8 @@ interface Tab {
 
 export default function StripeEmbeddedDashboard({ 
   onClose, 
-  connectedAccountId 
+  connectedAccountId,
+  fullPage = false
 }: StripeEmbeddedDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('payments');
   const [loading, setLoading] = useState(true);
@@ -163,47 +165,61 @@ export default function StripeEmbeddedDashboard({
   };
 
   if (loading) {
+    const content = (
+      <div className="loading-container">
+        <Loader className="loading-spinner" size={40} />
+        <h3>Loading Dashboard...</h3>
+        <p>Initializing your Stripe payment dashboard</p>
+      </div>
+    );
+
+    if (fullPage) {
+      return <div className="stripe-dashboard-fullpage">{content}</div>;
+    }
+    
     return (
       <div className="stripe-dashboard-overlay">
-        <div className="stripe-dashboard-modal">
-          <div className="loading-container">
-            <Loader className="loading-spinner" size={40} />
-            <h3>Loading Dashboard...</h3>
-            <p>Initializing your Stripe payment dashboard</p>
-          </div>
-        </div>
+        <div className="stripe-dashboard-modal">{content}</div>
       </div>
     );
   }
 
   if (error) {
+    const content = (
+      <div className="error-container">
+        <AlertCircle className="error-icon" size={40} />
+        <h3>Dashboard Error</h3>
+        <p>{error}</p>
+        <div className="error-actions">
+          {!fullPage && (
+            <button onClick={onClose} className="secondary-btn">
+              Close
+            </button>
+          )}
+          <button 
+            onClick={() => window.location.reload()} 
+            className="primary-btn"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+
+    if (fullPage) {
+      return <div className="stripe-dashboard-fullpage">{content}</div>;
+    }
+
     return (
       <div className="stripe-dashboard-overlay">
-        <div className="stripe-dashboard-modal">
-          <div className="error-container">
-            <AlertCircle className="error-icon" size={40} />
-            <h3>Dashboard Error</h3>
-            <p>{error}</p>
-            <div className="error-actions">
-              <button onClick={onClose} className="secondary-btn">
-                Close
-              </button>
-              <button 
-                onClick={() => window.location.reload()} 
-                className="primary-btn"
-              >
-                Retry
-              </button>
-            </div>
-          </div>
-        </div>
+        <div className="stripe-dashboard-modal">{content}</div>
       </div>
     );
   }
 
-  return (
-    <div className="stripe-dashboard-overlay">
-      <div className="stripe-dashboard-modal">
+  const dashboardContent = (
+    <>
+      {!fullPage && (
         <div className="dashboard-header">
           <div className="header-content">
             <h2>Payment Dashboard</h2>
@@ -213,44 +229,54 @@ export default function StripeEmbeddedDashboard({
             ×
           </button>
         </div>
+      )}
 
-        <ConnectComponentsProvider connectInstance={stripeConnectInstance}>
-          <ConnectNotificationBanner />
-          
-          <div className="dashboard-content">
-            <div className="dashboard-sidebar">
-              <nav className="dashboard-nav">
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => handleTabChange(tab.id)}
-                    className={`nav-tab ${activeTab === tab.id ? 'active' : ''}`}
-                  >
-                    <div className="tab-icon">{tab.icon}</div>
-                    <div className="tab-content">
-                      <span className="tab-label">{tab.label}</span>
-                      <span className="tab-description">{tab.description}</span>
-                    </div>
-                  </button>
-                ))}
-              </nav>
+      <ConnectComponentsProvider connectInstance={stripeConnectInstance}>
+        <ConnectNotificationBanner />
+        
+        <div className="dashboard-content">
+          <div className="dashboard-sidebar">
+            <nav className="dashboard-nav">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => handleTabChange(tab.id)}
+                  className={`nav-tab ${activeTab === tab.id ? 'active' : ''}`}
+                >
+                  <div className="tab-icon">{tab.icon}</div>
+                  <div className="tab-content">
+                    <span className="tab-label">{tab.label}</span>
+                    <span className="tab-description">{tab.description}</span>
+                  </div>
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          <div className="dashboard-main">
+            <div className="tab-header">
+              <div className="tab-info">
+                <h3>{tabs.find(tab => tab.id === activeTab)?.label}</h3>
+                <p>{tabs.find(tab => tab.id === activeTab)?.description}</p>
+              </div>
             </div>
-
-            <div className="dashboard-main">
-              <div className="tab-header">
-                <div className="tab-info">
-                  <h3>{tabs.find(tab => tab.id === activeTab)?.label}</h3>
-                  <p>{tabs.find(tab => tab.id === activeTab)?.description}</p>
-                </div>
-              </div>
-              
-              <div className="embedded-component-container">
-                {renderTabContent()}
-              </div>
+            
+            <div className="embedded-component-container">
+              {renderTabContent()}
             </div>
           </div>
-        </ConnectComponentsProvider>
-      </div>
+        </div>
+      </ConnectComponentsProvider>
+    </>
+  );
+
+  if (fullPage) {
+    return <div className="stripe-dashboard-fullpage">{dashboardContent}</div>;
+  }
+
+  return (
+    <div className="stripe-dashboard-overlay">
+      <div className="stripe-dashboard-modal">{dashboardContent}</div>
     </div>
   );
 }
