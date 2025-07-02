@@ -6,6 +6,7 @@ import { Elements, EmbeddedCheckout as StripeEmbeddedCheckout, EmbeddedCheckoutP
 import { usePlaidLink } from 'react-plaid-link';
 import { authAPI, subscriptionsAPI, invoicesAPI, clientsAPI, connectAPI, payoutsAPI, plaidAPI } from './utils/api';
 import ModernStripeOnboarding from './components/ModernStripeOnboarding';
+import StripeEmbeddedDashboard from './components/StripeEmbeddedDashboard';
 import './App.css';
 
 // Initialize Stripe
@@ -2119,6 +2120,9 @@ function SettingsTab({
   } | null>(null);
 
   const [plaidLoading, setPlaidLoading] = useState(false);
+  const [showStripeDashboard, setShowStripeDashboard] = useState(false);
+  const [stripeConnectAccount, setStripeConnectAccount] = useState<string | null>(null);
+  const [stripeConnected, setStripeConnected] = useState(false);
 
   // Load bank account status on component mount
   useEffect(() => {
@@ -2131,6 +2135,23 @@ function SettingsTab({
       }
     };
     loadBankAccountStatus();
+  }, []);
+
+  // Check Stripe Connect status
+  useEffect(() => {
+    const checkStripeConnectStatus = async () => {
+      try {
+        const response = await connectAPI.getAccountStatus();
+        if (response.connected && response.account_id) {
+          setStripeConnected(true);
+          setStripeConnectAccount(response.account_id);
+        }
+      } catch (error) {
+        console.error('Error checking Stripe Connect status:', error);
+      }
+    };
+
+    checkStripeConnectStatus();
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -2217,113 +2238,102 @@ function SettingsTab({
         <h2>Connect to Payment Processor</h2>
         <p>Connect your Stripe account to accept payments directly on your invoices with credit cards, debit cards, and bank transfers.</p>
         
-        <div className="bank-account-status">
-          {bankAccount ? (
-            <>
-              {!bankAccount.connected ? (
-                <div className="bank-not-connected">
-                  <div className="setup-header">
-                    <div className="setup-icon">
-                      <Building className="icon" />
-                    </div>
-                    <div className="setup-content">
-                      <h3>Connect your bank account</h3>
-                      <p>Securely link your bank account using Plaid to receive automatic weekly payouts from your invoices.</p>
-                    </div>
-                  </div>
-                  
-                  <div className="payout-benefits">
-                    <div className="benefit-item">
-                      <div className="benefit-icon">
-                        <Lock className="icon" />
-                      </div>
-                      <span>Bank-grade 256-bit encryption</span>
-                    </div>
-                    <div className="benefit-item">
-                      <div className="benefit-icon">
-                        <CreditCard className="icon" />
-                      </div>
-                      <span>Automatic weekly payouts</span>
-                    </div>
-                    <div className="benefit-item">
-                      <div className="benefit-icon">
-                        <DollarSign className="icon" />
-                      </div>
-                      <span>No setup or transfer fees</span>
-                    </div>
-                    <div className="benefit-item">
-                      <div className="benefit-icon">
-                        <Send className="icon" />
-                      </div>
-                      <span>2-3 business day transfers</span>
-                    </div>
-                  </div>
-
-                  <div className="plaid-connect-section">
-                    {plaidLoading ? (
-                      <button className="setup-payouts-btn" disabled>
-                        <div className="loading-spinner small"></div>
-                        Connecting...
-                      </button>
-                    ) : (
-                      <PlaidLinkComponent 
-                        onSuccess={handlePlaidSuccess}
-                        onExit={() => console.log('Plaid Link closed')}
-                      />
-                    )}
-                    <p className="plaid-disclaimer">
-                      Powered by Plaid. Your banking information is never stored on our servers.
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="bank-connected">
-                  <div className="bank-icon">
-                    <CreditCard className="icon" />
-                  </div>
-                  <h3>Bank account connected</h3>
-                  <p>Your bank account is securely connected and ready to receive payouts.</p>
-                  
-                  <div className="bank-details">
-                    <div className="detail-row">
-                      <span>Institution:</span>
-                      <span className="value">{bankAccount.account?.institution}</span>
-                    </div>
-                    <div className="detail-row">
-                      <span>Account:</span>
-                      <span className="value">{bankAccount.account?.name} ({bankAccount.account?.type})</span>
-                    </div>
-                    <div className="detail-row">
-                      <span>Connected:</span>
-                      <span className="value">
-                        {bankAccount.account?.connected_at 
-                          ? new Date(bankAccount.account.connected_at).toLocaleDateString()
-                          : 'Recently'
-                        }
-                      </span>
-                    </div>
-                    <div className="detail-row">
-                      <span>Status:</span>
-                      <span className="status-badge active">Active</span>
-                    </div>
-                  </div>
-
-                  <div className="bank-actions">
+        <div className="stripe-connect-status">
+          <div className="setup-status-card">
+            <div className="setup-header">
+              <div className="setup-icon">
+                <CreditCard className="icon" />
+              </div>
+              <div className="setup-info">
+                <h3>Stripe Payment Processing</h3>
+                <p>Connect your Stripe account to accept payments directly on your invoices</p>
+              </div>
+            </div>
+            
+            <div className="setup-status">
+              <div className="status-indicator">
+                <span className={`status-dot ${stripeConnected ? 'connected' : 'setup'}`}></span>
+                <span className="status-text">
+                  {stripeConnected ? 'Connected & Ready' : 'Not Connected'}
+                </span>
+              </div>
+              
+              <div className="setup-actions">
+                {!stripeConnected ? (
+                  <ModernStripeOnboarding 
+                    onClose={() => {
+                      // Refresh status after closing
+                      window.location.reload();
+                    }}
+                  />
+                ) : (
+                  <div className="connected-actions">
                     <button 
-                      className="disconnect-btn"
-                      onClick={handleDisconnectBank}
+                      className="dashboard-btn primary"
+                      onClick={() => setShowStripeDashboard(true)}
                     >
-                      <Settings className="icon" />
-                      Disconnect Bank Account
+                      <TrendingUp className="icon" />
+                      View Dashboard
+                    </button>
+                    <button 
+                      className="manage-btn secondary"
+                      onClick={() => window.open('https://dashboard.stripe.com/', '_blank')}
+                    >
+                      <ExternalLink className="icon" />
+                      Manage on Stripe
                     </button>
                   </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {stripeConnected ? (
+            <div className="connection-success">
+              <div className="success-message">
+                <div className="success-icon">🎉</div>
+                <h4>Payment Processing Active</h4>
+                <p>Your customers can now pay invoices directly with credit cards, debit cards, and bank transfers.</p>
+              </div>
+              <div className="connection-details">
+                <div className="detail-item">
+                  <span className="detail-label">Status:</span>
+                  <span className="detail-value connected">Active & Ready</span>
                 </div>
-              )}
-            </>
+                <div className="detail-item">
+                  <span className="detail-label">Payment Methods:</span>
+                  <span className="detail-value">Cards, Bank Transfers, ACH</span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Dashboard:</span>
+                  <span className="detail-value">Payments, Payouts, Analytics</span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Account ID:</span>
+                  <span className="detail-value">{stripeConnectAccount ? stripeConnectAccount.substring(0, 12) + '...' : 'Connected'}</span>
+                </div>
+              </div>
+            </div>
           ) : (
-            <div className="bank-loading">
-              <div className="loading-spinner"></div>
-              <p>Loading bank account status...</p>
+            <div className="setup-features">
+              <div className="feature-list">
+                <div className="feature-item">
+                  <div className="feature-icon">✓</div>
+                  <span>Accept credit cards and debit cards</span>
+                </div>
+                <div className="feature-item">
+                  <div className="feature-icon">✓</div>
+                  <span>Bank transfers and ACH payments</span>
+                </div>
+                <div className="feature-item">
+                  <div className="feature-icon">✓</div>
+                  <span>Automatic payment tracking</span>
+                </div>
+                <div className="feature-item">
+                  <div className="feature-icon">✓</div>
+                  <span>Real-time payment dashboard</span>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -2344,6 +2354,13 @@ function SettingsTab({
           </div>
         </div>
       </div>
+
+      {showStripeDashboard && stripeConnectAccount && (
+        <StripeEmbeddedDashboard
+          connectedAccountId={stripeConnectAccount}
+          onClose={() => setShowStripeDashboard(false)}
+        />
+      )}
     </div>
   );
 }

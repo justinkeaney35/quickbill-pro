@@ -1492,6 +1492,17 @@ app.post('/api/connect/account-session', authenticateToken, async (req, res) => 
         account_onboarding: { enabled: true },
         account_management: { enabled: true },
         notification_banner: { enabled: true },
+        payments: {
+          enabled: true,
+          features: {
+            refund_management: true,
+            dispute_management: true,
+            capture_payments: true,
+          }
+        },
+        payouts: { enabled: true },
+        balances: { enabled: true },
+        documents: { enabled: true },
       },
     });
 
