@@ -239,11 +239,6 @@ export const connectAPI = {
     const response = await api.get('/connect/account-status');
     return response.data;
   },
-
-  createAccountSession: async (accountId: string) => {
-    const response = await api.post('/connect/account-session', { account: accountId });
-    return response.data;
-  },
 };
 
 // Payouts API
