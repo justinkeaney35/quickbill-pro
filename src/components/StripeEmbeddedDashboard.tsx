@@ -19,6 +19,7 @@ import {
   Loader,
   AlertCircle
 } from 'lucide-react';
+import { connectAPI } from '../utils/api';
 
 interface StripeEmbeddedDashboardProps {
   onClose: () => void;
@@ -83,23 +84,9 @@ export default function StripeEmbeddedDashboard({
       try {
         console.log('Initializing Stripe Connect for account:', connectedAccountId);
         
-        // Create account session once
-        const response = await fetch(`${process.env.REACT_APP_API_URL}/api/connect/account-session`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('quickbill_token')}`
-          },
-          body: JSON.stringify({ account: connectedAccountId })
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          console.error('Account session API error:', errorData);
-          throw new Error(errorData.error || 'Failed to create account session');
-        }
-
-        const { client_secret } = await response.json();
+        // Create account session once using API utility
+        const sessionData = await connectAPI.createAccountSession(connectedAccountId);
+        const { client_secret } = sessionData;
         console.log('Account session created successfully');
 
         // Store client secret and use it for fetchClientSecret
@@ -212,21 +199,8 @@ export default function StripeEmbeddedDashboard({
               // Retry initialization
               const retryInit = async () => {
                 try {
-                  const response = await fetch(`${process.env.REACT_APP_API_URL}/api/connect/account-session`, {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${localStorage.getItem('quickbill_token')}`
-                    },
-                    body: JSON.stringify({ account: connectedAccountId })
-                  });
-
-                  if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Failed to create account session');
-                  }
-
-                  const { client_secret } = await response.json();
+                  const sessionData = await connectAPI.createAccountSession(connectedAccountId);
+                  const { client_secret } = sessionData;
                   const fetchClientSecret = async () => client_secret;
 
                   const instance = await loadConnectAndInitialize({
