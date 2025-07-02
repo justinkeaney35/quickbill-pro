@@ -5529,9 +5529,65 @@ body {
 
 /* Enhanced Payouts Tab Styles */
 .enhanced-payouts-tab {
-  padding: 2rem;
+  padding: 1.5rem 2rem;
   max-width: 1200px;
   margin: 0 auto;
+}
+
+.enhanced-payouts-tab .tab-header {
+  margin-bottom: 2rem;
+}
+
+.enhanced-payouts-tab .tab-header .header-content h1 {
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 0.25rem;
+}
+
+.enhanced-payouts-tab .tab-header .header-content p {
+  color: #6b7280;
+  font-size: 0.95rem;
+}
+
+.enhanced-payouts-tab .tab-nav {
+  display: flex;
+  gap: 0.25rem;
+  background: #f9fafb;
+  padding: 0.25rem;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+}
+
+.enhanced-payouts-tab .tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.enhanced-payouts-tab .tab-btn:hover {
+  color: #374151;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.enhanced-payouts-tab .tab-btn.active {
+  background: white;
+  color: #3b82f6;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.enhanced-payouts-tab .tab-content {
+  margin-top: 2rem;
 }
 
 .error-banner {
@@ -5563,12 +5619,38 @@ body {
   gap: 1rem;
 }
 
+.period-selector {
+  position: relative;
+}
+
 .period-select {
-  padding: 0.5rem 1rem;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
+  padding: 0.75rem 2.5rem 0.75rem 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
   background: white;
   font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 0.75rem center;
+  background-repeat: no-repeat;
+  background-size: 1rem;
+  min-width: 140px;
+}
+
+.period-select:hover {
+  border-color: #d1d5db;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.period-select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
 .overview-actions {
@@ -5580,18 +5662,23 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
   background: white;
   color: #374151;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
+  font-size: 0.875rem;
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .refresh-btn:hover, .export-btn:hover {
   background: #f9fafb;
-  border-color: #9ca3af;
+  border-color: #d1d5db;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .refresh-btn:disabled {
@@ -5617,16 +5704,58 @@ body {
 
 .balance-card {
   background: white;
-  border-radius: 12px;
-  padding: 1.5rem;
+  border-radius: 16px;
+  padding: 1.75rem;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e5e7eb;
-  transition: all 0.2s;
+  border: 1px solid #f3f4f6;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.balance-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  opacity: 0;
+  transition: opacity 0.3s ease;
 }
 
 .balance-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+  border-color: #e5e7eb;
+}
+
+.balance-card:hover::before {
+  opacity: 1;
+}
+
+.balance-card .balance-info h3 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.75rem;
+}
+
+.balance-card .balance-amount {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 0.5rem;
+  line-height: 1;
+}
+
+.balance-card .balance-info p {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin: 0;
 }
 
 .balance-card.available .balance-icon .icon { color: #10b981; }
