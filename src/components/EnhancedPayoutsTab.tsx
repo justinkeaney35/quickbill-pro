@@ -89,21 +89,54 @@ export default function EnhancedPayoutsTab({ user }: { user: User }) {
   const [error, setError] = useState<string>('');
 
   useEffect(() => {
-    loadPayoutData();
-    checkStripeConnection();
+    initializePayoutsTab();
   }, [period]);
 
-  const checkStripeConnection = async () => {
+  const initializePayoutsTab = async () => {
     try {
+      console.log('Initializing payouts tab...');
+      setLoading(true);
+      setError('');
+
+      // First check Stripe connection
+      console.log('Checking Stripe connection...');
       const response = await connectAPI.getAccountStatus();
-      setStripeConnected(response.status === 'active' && response.details_submitted);
-    } catch (error) {
-      console.error('Error checking Stripe connection:', error);
+      console.log('Stripe connection response:', response);
+      
+      const isConnected = response.status === 'active' && response.details_submitted;
+      console.log('Stripe connected:', isConnected);
+      setStripeConnected(isConnected);
+
+      if (isConnected) {
+        console.log('Loading payout data...');
+        // Load payout data if connected
+        const [payoutsData, analyticsData] = await Promise.all([
+          payoutsAPI.getStripePayouts(),
+          payoutsAPI.getPayoutAnalytics(period)
+        ]);
+
+        console.log('Payouts data:', payoutsData);
+        console.log('Analytics data:', analyticsData);
+
+        setStripePayouts(payoutsData.payouts || []);
+        setBalance(payoutsData.balance || null);
+        setAnalytics(analyticsData);
+      }
+      console.log('Payouts tab initialization complete');
+    } catch (error: any) {
+      console.error('Failed to initialize payouts tab:', error);
+      setError(error.message || 'Failed to load payout data');
+      setStripeConnected(false);
+    } finally {
+      setLoading(false);
     }
   };
 
   const loadPayoutData = async () => {
-    if (!stripeConnected) return;
+    if (!stripeConnected) {
+      await initializePayoutsTab();
+      return;
+    }
     
     try {
       setLoading(true);
@@ -127,7 +160,7 @@ export default function EnhancedPayoutsTab({ user }: { user: User }) {
 
   const refreshData = async () => {
     setRefreshing(true);
-    await loadPayoutData();
+    await initializePayoutsTab();
     setRefreshing(false);
   };
 
