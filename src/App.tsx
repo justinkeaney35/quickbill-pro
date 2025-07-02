@@ -2214,8 +2214,8 @@ function SettingsTab({
       </div>
 
       <div className="settings-section">
-        <h2>Bank Account Setup</h2>
-        <p>Connect your bank account to receive payments from your invoices securely through Plaid.</p>
+        <h2>Connect to Payment Processor</h2>
+        <p>Connect your Stripe account to accept payments directly on your invoices with credit cards, debit cards, and bank transfers.</p>
         
         <div className="bank-account-status">
           {bankAccount ? (
