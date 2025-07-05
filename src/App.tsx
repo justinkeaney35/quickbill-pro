@@ -8,6 +8,7 @@ import { authAPI, subscriptionsAPI, invoicesAPI, clientsAPI, connectAPI, payouts
 import ModernStripeOnboarding from './components/ModernStripeOnboarding';
 import StripeEmbeddedDashboard from './components/StripeEmbeddedDashboard';
 import EnhancedPayoutsTab from './components/EnhancedPayoutsTab';
+import EmailSettings from './components/EmailSettings';
 import './App.css';
 
 // Initialize Stripe
@@ -2508,6 +2509,13 @@ function SettingsTab({
             <strong>Supported Methods:</strong> All major credit cards
           </div>
         </div>
+      </div>
+
+      <div className="settings-section">
+        <EmailSettings 
+          apiUrl={process.env.REACT_APP_API_URL || 'http://localhost:3001/api'}
+          token={localStorage.getItem('token') || ''}
+        />
       </div>
 
       {showStripeDashboard && stripeConnectAccount && (
